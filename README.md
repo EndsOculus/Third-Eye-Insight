@@ -1,4 +1,4 @@
-# QQ-Interaction-Analysis-Tool
+# 觉之瞳
 
 [Click here to view the English version of the README](https://github.com/EndsOculus/QQ-Interaction-Analysis-Tool/blob/main/README_en.md)
 
