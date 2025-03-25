@@ -123,6 +123,7 @@ QQ-Interaction-Analysis-Tool/
 ```bash
 pip install pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn
 ```
+其他版本不确定兼容性，若程序不能正常运行请更换Python版本至3.13.2
 
 ## 使用方法
 
