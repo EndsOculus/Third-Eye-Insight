@@ -151,8 +151,8 @@ print(semantic_matrix_mapped[:5, :5])
 interaction_counts = np.zeros((num_users, num_users), dtype=int)
 user_to_index = {user: idx for idx, user in enumerate(users)}
 for i in range(len(chat_df) - 1):
-    sender_i = chat_df.loc[i, 'sender_id']
-    sender_j = chat_df.loc[i+1, 'sender_id']
+    sender_i = chat_df.iloc[i]['sender_id']
+    sender_j = chat_df.iloc[i+1]['sender_id']
     if sender_i == sender_j:
         continue
     t_i = chat_df.loc[i, 'timestamp']
