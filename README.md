@@ -126,6 +126,11 @@ pip install pandas numpy matplotlib seaborn networkx torch sentence-transformers
 
 ## 使用方法
 
+首先进行数据的预处理，删除nt_msg.db数据库前1024字节的无用数据，可采用以下命令进行处理：
+```python
+python -c "open('nt_msg.clean.db','wb').write(open('nt_msg.db','rb').read()[1024:])"
+```
+
 运行 `train.py` 时支持以下命令行参数：
 
 - `--group`：群聊号码（群聊模式下有效）。
