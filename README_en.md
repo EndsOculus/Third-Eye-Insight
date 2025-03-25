@@ -133,6 +133,11 @@ pip install pandas numpy matplotlib seaborn networkx torch sentence-transformers
 
 ## Usage
 
+The first is to preprocess the data and remove the first 1024 bytes of useless data from the database nt_msg.db, which can be done with the following command:
+```python
+python -c "open('nt_msg.clean.db','wb').write(open('nt_msg.db','rb').read()[1024:])"
+```
+
 Run `train.py` with the following command-line parameters:
 - `--group`: Group chat number (used in group mode).
 - `--db`: Path to the database file (e.g., `nt_msg.clean.db`).
