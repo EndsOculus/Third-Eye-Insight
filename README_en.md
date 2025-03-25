@@ -2,6 +2,24 @@
 
 This project is a deep learning and natural language processing based tool for automated analysis of user interaction affinity in group and private chats. It extracts chat records from an unencrypted SQLite database, calculates interaction scores between users by combining text embeddings and behavioral statistics, and generates detailed visualizations and an automated analysis report.
 
+## Project Differences & Extensions
+Compared to the previous approach that simply extracted data from an unencrypted SQLite database, cleaned and normalized it, and then calculated interaction metrics based solely on weighted sums, this project introduces several enhancements:
+
+- **Deep Learning Text Embedding:**  
+  Instead of traditional text processing, this project uses deep learning to convert chat messages into embeddings, capturing semantic nuances.
+
+- **Discrete Score Mapping:**  
+  Both semantic similarity and behavior scores are mapped via an ECDF-based discrete function, providing a more granular and discrete distribution that highlights moderate differences while reducing extreme uniformity.
+
+- **Fusion of Multiple Metrics:**  
+  The final affinity score fuses both behavioral and semantic metrics, offering a more comprehensive view of user interactions.
+
+- **User-Focused Analysis:**  
+  With the `--focus-user` parameter, the analysis can be tailored to examine the interactions of a specific user within a group.
+
+- **Enhanced Visualization and Reporting:**  
+  The tool generates high-quality visualizations (heatmaps, network graphs) and can automatically produce a detailed analysis report using the DeepSeek API, providing insights beyond basic numerical outputs.
+
 ## Features
 
 - **Data Extraction & Cleaning**  
