@@ -108,7 +108,7 @@ python train.py --group 0 --db nt_msg.clean.db --mode c2c --id 1919810 --font "M
 ## 项目结构
 
 ```
-QQ-Interaction-Analysis-Tool/
+Third-Eye-Insight/
 ├── extract_chat_data.py       # 数据提取与清洗模块
 ├── train.py                   # 主程序：互动指标计算、融合、CSV 输出及可视化/报告生成
 ├── visualization.py           # 可视化图表生成模块（热力图、网络图等）
