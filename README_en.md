@@ -2,6 +2,9 @@
 
 This project is a deep learning and natural language processing based tool for automated analysis of user interaction affinity in group and private chats. It extracts chat records from an unencrypted SQLite database, calculates interaction scores between users by combining text embeddings and behavioral statistics, and generates detailed visualizations and an automated analysis report.
 
+## The origin of the project name
+"Third Eye Insight" is inspired by the character Satori Komeiji from the "Touhou Project" series. Satori possesses the ability to read others' thoughts, symbolized by her third eye, known as the "Eye of Satori." The project name signifies the capability to delve deep into chat records, uncovering interaction patterns among users, akin to possessing a "third eye" that perceives the unseen. The English name "Third Eye Insight" emphasizes this perceptive ability, representing a profound understanding of interpersonal communications through technological means.
+
 ## Project Differences & Extensions
 Compared to the previous approach that simply extracted data from an unencrypted SQLite database, cleaned and normalized it, and then calculated interaction metrics based solely on weighted sums, this project introduces several enhancements:
 
