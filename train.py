@@ -153,10 +153,8 @@ user_to_index = {user: idx for idx, user in enumerate(users)}
 for i in range(len(chat_df) - 1):
     sender_i = chat_df.iloc[i]['sender_id']
     sender_j = chat_df.iloc[i+1]['sender_id']
-    if sender_i == sender_j:
-        continue
-    t_i = chat_df.loc[i, 'timestamp']
-    t_j = chat_df.loc[i+1, 'timestamp']
+    t_i = chat_df.iloc[i]['timestamp']
+    t_j = chat_df.iloc[i+1]['timestamp']
     if (t_j - t_i).total_seconds() <= 300:
         idx_i = user_to_index[sender_i]
         idx_j = user_to_index[sender_j]
