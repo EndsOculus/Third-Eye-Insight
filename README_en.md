@@ -1,4 +1,4 @@
-# Chat Interaction Affinity Analysis Tool
+# Third Eye Insight
 
 This project is a deep learning and natural language processing based tool for automated analysis of user interaction affinity in group and private chats. It extracts chat records from an unencrypted SQLite database, calculates interaction scores between users by combining text embeddings and behavioral statistics, and generates detailed visualizations and an automated analysis report.
 
