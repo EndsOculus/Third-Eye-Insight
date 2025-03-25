@@ -57,6 +57,7 @@ parser.add_argument("--font", type=str, default="Microsoft YaHei", help="Font us
 parser.add_argument("--boost", action="store_true", help="Enable GPU acceleration (default off)")
 parser.add_argument("--report", action="store_true", help="Whether to generate an analysis report")
 parser.add_argument("--focus-user", type=str, default=None, help="Focus analysis on a specific user (QQ号)")
+parser.add_argument("--lite", action="store_true", help="仅分析 focus-user 与其他用户之间的互动数据")
 args = parser.parse_args()
 
 # 选择设备
@@ -107,6 +108,23 @@ if chat_df.empty:
 
 # 重置索引
 chat_df.reset_index(drop=True, inplace=True)
+
+if args.lite and args.focus_user:
+    focus = str(args.focus_user)
+    # 初始化一个空集合，保存保留的行索引
+    related_indices = set()
+    # 遍历相邻记录，若其中一条来自 focus-user 且时间间隔在 5 分钟内，则保留这两条记录
+    for i in range(len(chat_df) - 1):
+        sender_current = chat_df.iloc[i]['sender_id']
+        sender_next = chat_df.iloc[i+1]['sender_id']
+        t_current = chat_df.iloc[i]['timestamp']
+        t_next = chat_df.iloc[i+1]['timestamp']
+        # 如果任意一条记录为 focus-user，并且时间差小于等于 300 秒
+        if (sender_current == focus or sender_next == focus) and ((t_next - t_current).total_seconds() <= 300):
+            related_indices.add(i)
+            related_indices.add(i+1)
+    chat_df = chat_df.iloc[list(related_indices)].reset_index(drop=True)
+    print(f"仅保留与用户 {focus} 相关的互动记录，共 {len(chat_df)} 条记录。")
 
 # 3. 文本嵌入（使用 SentenceTransformer）
 print("加载预训练文本嵌入模型...")
@@ -258,17 +276,16 @@ if args.report:
             print(f"[ERROR] 调用 API 生成报告时出错: {e}")
 
     # 构造 Markdown 格式的用户映射表（放在报告开头）
-    # 构造 Markdown 格式的用户映射表（放在报告开头）
     user_mapping_str = "## 用户映射表\n\n| 索引 | QQ号 | 昵称 |\n| --- | --- | --- |\n"
     for idx, u in enumerate(users):
         user_mapping_str += f"| {idx} | {u} | {user_name_map.get(u, str(u))} |\n"
-    
+
     # 如果指定了 focus-user，则在报告内容中说明数据仅包含该用户与其他人的互动内容
     if args.focus_user:
         report_prefix = f"以下数据仅包含群聊中 QQ 号为 {args.focus_user} 的用户与其他用户之间的聊天内容。"
     else:
         report_prefix = "以下数据基于群聊中所有用户的聊天内容。"
-    
+
     report_content = (
         f"{user_mapping_str}\n"
         f"{report_prefix}\n"
@@ -279,7 +296,7 @@ if args.report:
         f"文本内容相似度矩阵：{np.array(semantic_matrix).tolist()}\n"
     )
 
-    api_key = "Your_API_KEY"  # 请替换为实际 API Key
+    api_key = "sk-b16e0d0222824861b6583da61a4a251c"  # 请替换为实际 API Key
     generate_report_via_api(api_key, report_content, save_path="output/analysis_report.md")
 else:
     print("[INFO] 未指定 --report 参数，跳过生成分析报告。")
