@@ -258,19 +258,27 @@ if args.report:
             print(f"[ERROR] 调用 API 生成报告时出错: {e}")
 
     # 构造 Markdown 格式的用户映射表（放在报告开头）
+    # 构造 Markdown 格式的用户映射表（放在报告开头）
     user_mapping_str = "## 用户映射表\n\n| 索引 | QQ号 | 昵称 |\n| --- | --- | --- |\n"
     for idx, u in enumerate(users):
         user_mapping_str += f"| {idx} | {u} | {user_name_map.get(u, str(u))} |\n"
-
+    
+    # 如果指定了 focus-user，则在报告内容中说明数据仅包含该用户与其他人的互动内容
+    if args.focus_user:
+        report_prefix = f"以下数据仅包含群聊中 QQ 号为 {args.focus_user} 的用户与其他用户之间的聊天内容。"
+    else:
+        report_prefix = "以下数据基于群聊中所有用户的聊天内容。"
+    
     report_content = (
         f"{user_mapping_str}\n"
-        f"请根据以下数据生成详细的互动分析报告：\n"
+        f"{report_prefix}\n"
         f"群聊号码：{GROUP_ID}\n"
         f"总用户数：{num_users}\n"
         f"总消息数：{len(chat_df)}\n"
         f"行为矩阵：{np.array(behavior_matrix).tolist()}\n"
         f"文本内容相似度矩阵：{np.array(semantic_matrix).tolist()}\n"
     )
+
     api_key = "Your_API_KEY"  # 请替换为实际 API Key
     generate_report_via_api(api_key, report_content, save_path="output/analysis_report.md")
 else:
