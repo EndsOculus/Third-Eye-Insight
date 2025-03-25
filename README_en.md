@@ -115,7 +115,7 @@ python train.py --group 0 --db nt_msg.clean.db --mode c2c --id 1919810 --font "M
 ## Project Structure
 
 ```
-QQ-Interaction-Analysis-Tool/
+Third-Eye-Insight/
 ├── extract_chat_data.py       # Module for data extraction and cleaning
 ├── train.py                   # Main program: calculates and fuses interaction metrics, outputs CSV, charts, and report
 ├── visualization.py           # Module for generating visualizations (heatmaps, network graphs, etc.)
