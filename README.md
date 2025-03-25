@@ -1,5 +1,7 @@
 # QQ-Interaction-Analysis-Tool
 
+[Click here to view the English version of the README](https://github.com/EndsOculus/QQ-Interaction-Analysis-Tool/blob/main/README_en.md)
+
 本项目基于深度学习与自然语言处理技术，用于自动化分析群聊和私聊中用户之间的互动亲密度。工具从未加密的 SQLite 数据库中提取聊天记录，通过文本嵌入与行为统计计算用户对之间的互动得分，并生成详细的可视化图表与自动化分析报告。
 
 ## 特性
