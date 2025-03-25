@@ -130,6 +130,7 @@ Make sure you have Python 3.13.2 installed, then install the required dependenci
 ```bash
 pip install pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn
 ```
+Other versions are not sure of compatibility, if the program does not work properly, please change the Python version to 3.13.2.
 
 ## Usage
 
