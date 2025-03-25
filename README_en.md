@@ -102,6 +102,13 @@ python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --f
 python train.py --group 0 --db nt_msg.clean.db --mode c2c --id 1919810 --font "Microsoft YaHei"
 ```
 
+- **Lite Mode (`--lite`):**  
+  When both the `--lite` and `--focus-user` parameters are specified, the program will filter the dataset to retain only those chat records that involve the specified focus user and interactions occurring within a 5-minute window. This allows for targeted analysis of the focus user’s interactions.  
+  **Usage Example:**  
+  ```bash
+  python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --focus-user 1919810 --lite --font "Microsoft YaHei"
+  ```
+
 ## Project Structure
 
 ```
@@ -132,6 +139,7 @@ Run `train.py` with the following command-line parameters:
 - `--font`: Font for chart display (default: "Microsoft YaHei").
 - `--boost`: Enable GPU acceleration (default off).
 - `--report`: Generate a detailed analysis report (calls DeepSeek API).
+- `--lite`：Keep only the interaction records related to a specific user to realize highly focused analysis.
 
 Upon starting, the program will prompt you to enter a start date and an end date (format: YYYY/MM/DD):
 - Enter both start and end dates to analyze data within that period.
