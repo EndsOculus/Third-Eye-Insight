@@ -97,6 +97,13 @@ python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --f
 python train.py --group 0 --db nt_msg.clean.db --mode c2c --id 1919810 --font "Microsoft YaHei"
 ```
 
+**Lite 模式 (`--lite`)：**  
+  当同时指定 `--lite` 参数和 `--focus-user` 参数时，程序将仅保留与指定用户相关的互动记录（即只分析该用户与其他用户之间在 5 分钟内连续互动的聊天数据），从而实现聚焦分析。  
+  **使用示例：**  
+  ```bash
+  python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --focus-user 1919810 --lite --font "Microsoft YaHei"
+  ```
+
 ## 项目结构
 
 ```
@@ -128,6 +135,7 @@ pip install pandas numpy matplotlib seaborn networkx torch sentence-transformers
 - `--font`：图表显示使用的中文字体（默认 “Microsoft YaHei”）。
 - `--boost`：是否启用 GPU 加速（默认关闭）。
 - `--report`：是否生成详细分析报告（调用 DeepSeek API）。
+- `--lite`：是否仅保留与指定用户相关的互动记录,实现高度聚焦分析。
 
 程序启动后会提示输入起始日期和结束日期（格式：YYYY/MM/DD）：  
 - 同时输入起始和结束日期：仅分析该时间段数据。  
