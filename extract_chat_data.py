@@ -22,15 +22,50 @@ def clean_message(text: str) -> str:
     except Exception:
         return text
 
-def extract_chat_data(db_path: str, identifier: int, mode: str = "group") -> pd.DataFrame:
+def _build_query(mode: str, identifier: int) -> str:
+    """根据模式生成 SQL 查询。"""
+    if mode == "group":
+        id_field = '"40027"'
+        table = "group_msg_table"
+    elif mode == "c2c":
+        id_field = '"40033"'
+        table = "c2c_msg_table"
+    else:
+        raise ValueError(f"未知的 mode: {mode}")
+
+    query = f"""
+        SELECT
+            "40033" AS sender_id,
+            "40090" AS group_nickname,
+            "40093" AS qq_name,
+            "40080" AS content,
+            "40050" AS timestamp
+        FROM {table}
+        WHERE {id_field} = {identifier}
+          AND "40011" = 2
+          AND "40012" = 1
+          AND content IS NOT NULL
+          AND TRIM(content) <> ''
+          AND "40033" NOT IN (2854196310, 10000)
+    """
+    return query
+
+
+def extract_chat_data(
+    db_path: str,
+    identifier: int,
+    mode: str = "group",
+    remote: bool = False,
+) -> pd.DataFrame:
     """
     从数据库中提取聊天数据，并对消息内容进行清洗。
-    
+
     参数：
-        db_path (str): 数据库文件路径，例如 "nt_msg.clean.db"。
+        db_path (str): SQLite 数据库文件路径或 PostgreSQL 连接字符串。
         identifier (int): 若 mode 为 "group"，则为群聊号码；若为 "c2c"，则为好友 QQ 号。
         mode (str): "group" 表示群聊模式，"c2c" 表示私聊模式。
-    
+        remote (bool): 为 True 时使用远程 PostgreSQL 数据库；否则使用本地 SQLite。
+
     返回：
         DataFrame，包含以下字段：
           - sender_id: 发送者 QQ 号（字符串类型）
@@ -38,57 +73,41 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group") -> pd.
           - content: 消息内容（文本，已清洗）
           - timestamp: 消息发送时间（转换为 datetime 格式，按北京时间）
     """
+
     try:
-        conn = sqlite3.connect(db_path)
-    except Exception as e:
-        print(f"[ERROR] 无法连接数据库: {e}")
+        identifier = int(identifier)
+    except Exception:
+        print("[ERROR] identifier 必须为整数")
         return pd.DataFrame()
 
-    if mode == "group":
-        query = """
-        SELECT 
-            "40033" AS sender_id,
-            "40090" AS group_nickname,
-            "40093" AS qq_name,
-            "40080" AS content,
-            "40050" AS timestamp
-        FROM group_msg_table
-        WHERE "40027" = ? 
-          AND "40011" = 2 
-          AND "40012" = 1 
-          AND content IS NOT NULL 
-          AND TRIM(content) <> ''
-          AND "40033" NOT IN (2854196310, 10000)
-        """
-    elif mode == "c2c":
-        query = """
-        SELECT 
-            "40033" AS sender_id,
-            "40090" AS group_nickname,
-            "40093" AS qq_name,
-            "40080" AS content,
-            "40050" AS timestamp
-        FROM c2c_msg_table
-        WHERE "40033" = ? 
-          AND "40011" = 2 
-          AND "40012" = 1 
-          AND content IS NOT NULL 
-          AND TRIM(content) <> ''
-          AND "40033" NOT IN (2854196310, 10000)
-        """
+    try:
+        query = _build_query(mode, identifier)
+    except ValueError as e:
+        print(f"[ERROR] {e}")
+        return pd.DataFrame()
+
+    if remote:
+        try:
+            from sqlalchemy import create_engine
+            engine = create_engine(db_path)
+            with engine.connect() as conn:
+                df = pd.read_sql_query(query, conn)
+            engine.dispose()
+        except Exception as e:
+            print(f"[ERROR] 无法连接数据库: {e}")
+            return pd.DataFrame()
     else:
-        print(f"[ERROR] 未知的 mode: {mode}")
-        conn.close()
-        return pd.DataFrame()
-
-    try:
-        df = pd.read_sql_query(query, conn, params=(identifier,))
-    except Exception as e:
-        print(f"[ERROR] 执行 SQL 查询失败: {e}")
-        conn.close()
-        return pd.DataFrame()
-    finally:
-        conn.close()
+        try:
+            conn = sqlite3.connect(db_path)
+            df = pd.read_sql_query(query, conn)
+        except Exception as e:
+            print(f"[ERROR] 执行 SQL 查询失败: {e}")
+            return pd.DataFrame()
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     if df.empty:
         print(f"[INFO] {mode} 模式下，标识符 {identifier} 未提取到有效数据。")

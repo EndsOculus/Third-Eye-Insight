@@ -155,6 +155,23 @@ python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --f
 python train.py --group 114514 --db "postgresql://sr:your_password@127.0.0.1:5432/botmsg" --mode group --id 114514 --font "Microsoft YaHei" --remote
 ```
 
+**在脚本中直接提取数据：**
+
+```python
+from extract_chat_data import extract_chat_data
+
+# 本地 SQLite 数据库
+df_local = extract_chat_data("nt_msg.clean.db", 114514, mode="group")
+
+# 远程 PostgreSQL 数据库
+df_remote = extract_chat_data(
+    "postgresql://username:password@host:5432/dbname",
+    114514,
+    mode="group",
+    remote=True,
+)
+```
+
 程序启动后会提示输入起始和结束日期（格式 YYYY/MM/DD）：
 - 同时输入起始和结束日期：仅分析该时间段数据。
 - 直接回车：默认分析所有数据。
