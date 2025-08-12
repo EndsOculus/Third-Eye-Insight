@@ -36,7 +36,9 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group") -> pd.
           - sender_id: 发送者 QQ 号（字符串类型）
           - sender_nickname: 显示名称（优先使用群昵称，若为空则使用 QQ 名称）
           - content: 消息内容（文本，已清洗）
-          - timestamp: 消息发送时间（转换为 datetime 格式，按北京时间）
+          - timestamp: 消息发送时间（尝试转换为北京时间；若转换失败则保留 UTC 时间）
+    注意：
+        若未找到任何有效时间戳，将抛出 ValueError。
     """
     try:
         conn = sqlite3.connect(db_path)
@@ -96,16 +98,14 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group") -> pd.
     print("原始时间戳数据：", df['timestamp'].head())
 
     df['sender_id'] = df['sender_id'].astype(str)
+    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s', errors='coerce', utc=True)
+    if df['timestamp'].isna().all():
+        raise ValueError("[ERROR] 无有效时间戳，无法进行转换")
     try:
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s', errors='coerce', utc=True)
-        converted = df['timestamp'].dt.tz_convert('Asia/Shanghai').dt.tz_localize(None)
-        if not converted.isna().all():
-            df['timestamp'] = converted
-        else:
-            print("[WARN] 时间转换失败，保留 UTC 时间")
-            df['timestamp'] = df['timestamp'].dt.tz_localize(None)
+        df['timestamp'] = df['timestamp'].dt.tz_convert('Asia/Shanghai').dt.tz_localize(None)
     except Exception as e:
-        print(f"[WARN] 时间戳转换失败: {e}")
+        print(f"[WARN] 时间转换失败，保留 UTC 时间: {e}")
+        df['timestamp'] = df['timestamp'].dt.tz_localize(None)
     
     # 清洗消息内容
     df['content'] = df['content'].apply(clean_message)
