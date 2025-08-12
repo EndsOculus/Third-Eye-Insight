@@ -1,7 +1,8 @@
 """
 extract_chat_data.py
 --------------------
-从未加密的 SQLite 数据库中提取聊天数据，并清洗掉除 emoji、中文、英文、数字、常见符号以外的其他字符（将无法显示的字符替换为 '?'）。
+从本地 SQLite 或远程 PostgreSQL 数据库中提取聊天数据，并清洗掉除 emoji、中文、英文、
+数字、常见符号以外的其他字符（将无法显示的字符替换为 '?'）。
 要求：
 - 对于群聊模式，从表 group_msg_table 中提取数据；
 - 对于私聊模式，从表 c2c_msg_table 中提取数据；
@@ -22,31 +23,52 @@ def clean_message(text: str) -> str:
     except Exception:
         return text
 
-def extract_chat_data(db_path: str, identifier: int, mode: str = "group") -> pd.DataFrame:
-    """
-    从数据库中提取聊天数据，并对消息内容进行清洗。
-    
+def extract_chat_data(
+    db_path: str, identifier: int, mode: str = "group", remote: bool = False
+) -> pd.DataFrame:
+    """从数据库中提取聊天数据，并对消息内容进行清洗。
+
     参数：
-        db_path (str): 数据库文件路径，例如 "nt_msg.clean.db"。
-        identifier (int): 若 mode 为 "group"，则为群聊号码；若为 "c2c"，则为好友 QQ 号。
-        mode (str): "group" 表示群聊模式，"c2c" 表示私聊模式。
-    
+        db_path (str): 数据库连接字符串或本地文件路径。
+        identifier (int): 若 ``mode`` 为 ``"group"``，则为群聊号码；若为 ``"c2c"``，则为好友
+            QQ 号。
+        mode (str): ``"group"`` 表示群聊模式，``"c2c"`` 表示私聊模式。
+        remote (bool): ``True`` 使用远程 PostgreSQL 连接，``False`` 使用本地 SQLite。
+
     返回：
         DataFrame，包含以下字段：
-          - sender_id: 发送者 QQ 号（字符串类型）
-          - sender_nickname: 显示名称（优先使用群昵称，若为空则使用 QQ 名称）
-          - content: 消息内容（文本，已清洗）
-          - timestamp: 消息发送时间（转换为 datetime 格式，按北京时间）
+            - sender_id: 发送者 QQ 号（字符串类型）
+            - sender_nickname: 显示名称（优先使用群昵称，若为空则使用 QQ 名称）
+            - content: 消息内容（文本，已清洗）
+            - timestamp: 消息发送时间（转换为 datetime 格式，按北京时间）
     """
+
+    if mode not in {"group", "c2c"}:
+        print(f"[ERROR] Unsupported mode: {mode}. Use 'group' or 'c2c'.")
+        return pd.DataFrame()
+
     try:
-        conn = sqlite3.connect(db_path)
+        if remote:
+            try:
+                from sqlalchemy import create_engine
+            except Exception as e:  # pragma: no cover - import error
+                print(f"[ERROR] Failed to import SQLAlchemy: {e}")
+                return pd.DataFrame()
+            try:
+                engine = create_engine(db_path)
+                conn = engine.connect()
+            except Exception as e:
+                print(f"[ERROR] 无法连接远程数据库: {e}")
+                return pd.DataFrame()
+        else:
+            conn = sqlite3.connect(db_path)
     except Exception as e:
         print(f"[ERROR] 无法连接数据库: {e}")
         return pd.DataFrame()
 
     if mode == "group":
         query = """
-        SELECT 
+        SELECT
             "40033" AS sender_id,
             "40090" AS group_nickname,
             "40093" AS qq_name,
@@ -62,7 +84,7 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group") -> pd.
         """
     elif mode == "c2c":
         query = """
-        SELECT 
+        SELECT
             "40033" AS sender_id,
             "40090" AS group_nickname,
             "40093" AS qq_name,
@@ -76,11 +98,6 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group") -> pd.
           AND TRIM(content) <> ''
           AND "40033" NOT IN (2854196310, 10000)
         """
-    else:
-        print(f"[ERROR] 未知的 mode: {mode}")
-        conn.close()
-        return pd.DataFrame()
-
     try:
         df = pd.read_sql_query(query, conn, params=(identifier,))
     except Exception as e:
