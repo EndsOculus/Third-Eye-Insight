@@ -91,10 +91,7 @@ identifier = args.group if args.mode == "group" else args.id
 
 # 1. 数据提取
 print("正在提取数据...")
-if args.remote:
-    chat_df = extract_chat_data(args.db, identifier, mode=args.mode, remote=True)
-else:
-    chat_df = extract_chat_data(args.db, identifier, mode=args.mode, remote=False)
+chat_df = extract_chat_data(args.db, identifier, args.mode, args.remote)
 if chat_df.empty:
     print("[ERROR] 未提取到数据，程序退出。")
     exit(1)
