@@ -178,7 +178,7 @@ text_model = SentenceTransformer(model_name)
 batch_size = 32
 num_workers = 4
 chat_df = parallel_encode(chat_df, text_model, batch_size=batch_size, num_workers=num_workers)
-embedding_dim = text_model.get_sentence_embedding_dimension()
+embedding_dim = len(chat_df['text_embedding'].iloc[0]) if not chat_df.empty else 0
 print("文本嵌入计算完成。")
 
 # 4. 计算每个用户的平均文本嵌入（均值后归一化）
