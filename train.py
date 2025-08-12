@@ -183,6 +183,11 @@ chat_df = parallel_encode(chat_df, model_name, batch_size=batch_size, num_worker
 print("文本嵌入计算完成。")
 
 # 4. 计算每个用户的平均文本嵌入（均值后归一化）
+# 在批量编码后，chat_df 中已经包含了每条消息的嵌入向量。
+# 计算用户平均嵌入时需要在没有消息的情况下提供一个零向量。
+# 原代码尝试使用未定义的 `text_model` 获取维度，会导致 NameError。
+# 这里直接从已计算的嵌入中推导维度，避免重复加载模型。
+embedding_dim = len(chat_df['text_embedding'].iloc[0]) if not chat_df.empty else 0
 user_text_embeddings = {}
 for user in chat_df['sender_id'].unique():
     embeds = chat_df[chat_df['sender_id'] == user]['text_embedding'].tolist()
@@ -191,7 +196,7 @@ for user in chat_df['sender_id'].unique():
         norm_val = np.linalg.norm(avg_embed)
         user_text_embeddings[user] = avg_embed / norm_val if norm_val > 0 else avg_embed
     else:
-        user_text_embeddings[user] = np.zeros(text_model.get_sentence_embedding_dimension())
+        user_text_embeddings[user] = np.zeros(embedding_dim)
 
 # 5. 计算语义相似度矩阵（基于余弦相似度）并离散化映射
 semantic_matrix = np.zeros((len(user_text_embeddings), len(user_text_embeddings)))
