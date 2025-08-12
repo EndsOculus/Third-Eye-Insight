@@ -30,6 +30,7 @@ import networkx as nx
 from visualization import plot_interaction_heatmap, plot_interaction_network, plot_custom_heatmap
 from scipy.optimize import minimize
 from concurrent.futures import ThreadPoolExecutor  # 改为使用 ThreadPoolExecutor
+from embedding_utils import compute_user_text_embeddings
 
 # 定义离散化映射函数（ECDF 离散映射，拉大差异）
 def discrete_mapping(matrix, L=1000):
@@ -150,48 +151,39 @@ if args.lite and args.focus_user:
 
 # 3. 文本嵌入（使用批量处理+多线程）
 print("加载预训练文本嵌入模型并进行批量计算...")
-import math
-from concurrent.futures import ThreadPoolExecutor
 
 def encode_batch(texts, model, batch_size=32):
     return model.encode(texts, batch_size=batch_size, show_progress_bar=False)
 
-def process_chunk(chunk_df, model_name, batch_size):
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer(model_name)
+def process_chunk(chunk_df, model, batch_size):
     texts = chunk_df['content'].tolist()
     embeddings = encode_batch(texts, model, batch_size=batch_size)
     chunk_df = chunk_df.copy()
     chunk_df['text_embedding'] = list(embeddings)
     return chunk_df
 
-def parallel_encode(chat_df, model_name, batch_size=32, num_workers=4):
+def parallel_encode(chat_df, model, batch_size=32, num_workers=4):
     n = len(chat_df)
     chunk_size = math.ceil(n / num_workers)
     chunks = [chat_df.iloc[i:i+chunk_size] for i in range(0, n, chunk_size)]
     results = []
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = [executor.submit(process_chunk, chunk, model_name, batch_size) for chunk in chunks]
+        futures = [executor.submit(process_chunk, chunk, model, batch_size) for chunk in chunks]
         for future in futures:
             results.append(future.result())
     return pd.concat(results).reset_index(drop=True)
 
 model_name = "paraphrase-multilingual-MiniLM-L12-v2"
+text_model = SentenceTransformer(model_name)
 batch_size = 32
 num_workers = 4
-chat_df = parallel_encode(chat_df, model_name, batch_size=batch_size, num_workers=num_workers)
+chat_df = parallel_encode(chat_df, text_model, batch_size=batch_size, num_workers=num_workers)
+embedding_dim = text_model.get_sentence_embedding_dimension()
 print("文本嵌入计算完成。")
 
 # 4. 计算每个用户的平均文本嵌入（均值后归一化）
-user_text_embeddings = {}
-for user in chat_df['sender_id'].unique():
-    embeds = chat_df[chat_df['sender_id'] == user]['text_embedding'].tolist()
-    if embeds:
-        avg_embed = np.mean(embeds, axis=0)
-        norm_val = np.linalg.norm(avg_embed)
-        user_text_embeddings[user] = avg_embed / norm_val if norm_val > 0 else avg_embed
-    else:
-        user_text_embeddings[user] = np.zeros(text_model.get_sentence_embedding_dimension())
+users = chat_df['sender_id'].unique()
+user_text_embeddings = compute_user_text_embeddings(chat_df, users, embedding_dim)
 
 # 5. 计算语义相似度矩阵（基于余弦相似度）并离散化映射
 semantic_matrix = np.zeros((len(user_text_embeddings), len(user_text_embeddings)))
