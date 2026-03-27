@@ -38,20 +38,24 @@
 
 ## 原理解释
 
-本项目采用混合多指标模型衡量用户互动活跃度，核心原理包括：
+本项目采用混合多指标模型衡量用户互动亲密度，核心原理包括：
 
-1. **文本嵌入与语义相似度**  
-   - 使用预训练 SentenceTransformer 模型将每条消息转换为向量，计算每个用户的平均嵌入，并利用余弦相似度构造语义相似度矩阵。  
-   - 采用经验累计分布（ECDF）离散化映射，将连续得分离散化到指定等级，使中间值较多、极端值较少。
+1. **文本嵌入与语义相似度**
+   - 使用预训练 SentenceTransformer 模型将每条消息转换为向量。
+   - 通过 5 分钟滑动窗口识别实际交互的消息对，计算这些消息对之间的余弦相似度均值——衡量的是"两人在互相回应对方说的话"，而非全局平均向量的相似性。
+   - 采用经验累计分布（ECDF）离散化映射，拉大细微差异。
 
-2. **行为统计**  
-   - 统计用户在 5 分钟内连续互动的次数，对 np.log1p(互动次数) 进行归一化与离散化映射，反映用户之间的行为互动频率。
+2. **行为互动**
+   - 以 5 分钟为窗口，统计窗口内所有不同用户间的消息交互（非仅相邻两条），并施以指数时间衰减权重（τ=150s），越早的共现贡献越低。
+   - 对 log1p(加权互动量) 归一化，反映互动密集程度。
 
-3. **网络拓扑指标**  
-   - 基于行为数据构建用户互动网络，计算各用户的度中心性，并定义用户对之间的网络得分为二者中心性的平均值。
+3. **网络拓扑：Jaccard 共同邻居系数**
+   - 基于行为互动网络，计算两用户共同互动过的第三方占各自互动对象的比例。
+   - 衡量"社交圈重叠程度"，共同朋友越多得分越高，与两人自身是否活跃无关。
 
-4. **指标融合与自动权重**  
-   - 将语义、行为与网络三个指标按照设定或自动调整的权重（示例默认：语义 0.4，行为 0.4，网络 0.2）融合，得到最终互动活跃度得分。
+4. **指标融合与自动权重**
+   - 将语义、行为与网络三个指标按权重（默认：语义 0.4，行为 0.4，网络 0.2）融合，得到最终亲密度得分。
+   - 支持 scipy 自动优化权重，最大化得分方差以增强区分度。
 
 ---
 
@@ -70,13 +74,13 @@
      ```
    - 加密数据库通过 `config.json` 配置 SQLCipher 参数（密码、页大小、KDF 迭代次数等），程序自动识别并解密读取。
      
-3. **文本嵌入与特征计算**  
-   - 使用批量处理和多线程加速计算文本嵌入；对每个用户的消息向量取均值，并归一化后构造语义相似度矩阵。  
-   - 统计行为互动和构建网络拓扑指标。
+3. **文本嵌入与特征计算**
+   - 使用批量处理和多线程加速计算文本嵌入。
+   - 通过滑动窗口计算交互消息对语义相似度、行为互动加权量、Jaccard 网络得分。
 
-4. **指标融合与输出**  
-   - 可选自动调整权重，使最终融合得分更加离散。  
-   - 生成 CSV 文件、热力图（语义、行为、网络各指标）和网络图，同时生成用户映射文件和详细的 Markdown 分析报告。
+4. **指标融合与输出**
+   - 可选自动调整权重，使最终融合得分更加离散。
+   - 生成 CSV 文件、多维热力图（语义/行为/网络/综合亲密度）、网络图、Top 互动对条形图，同时生成用户映射文件和结构化 Markdown 分析报告。
 
 ---
 
@@ -87,17 +91,19 @@
   - 自动过滤系统消息（QQ 号 10000 与 2854196310）  
   - 交互式时间范围筛选（YYYY/MM/DD 格式）  
 
-- **互动指标计算**  
-  - 文本嵌入（使用 SentenceTransformer，支持多线程批量计算）  
-  - 语义相似度、行为互动与网络拓扑指标计算  
-  - 离散化映射（ECDF 映射）拉大细微差异  
-  - 支持自动调整指标融合权重  
+- **互动指标计算**
+  - 文本嵌入（SentenceTransformer，多线程批量计算）
+  - 语义：交互消息对余弦相似度均值（ECDF 离散化）
+  - 行为：5 分钟滑动窗口 + 指数时间衰减
+  - 网络：Jaccard 共同邻居系数
+  - 支持自动调整指标融合权重
 
 - **可视化与报告生成**
-  - 输出 CSV 文件、热力图、网络图等
-  - 自动生成包含用户映射表的详细分析报告
-  - 支持聚焦分析特定用户
-  - 输出文件名中包含时间区间信息
+  - 热力图（语义/行为/网络/综合亲密度，按活跃度排序，对角遮蔽）
+  - Top N 互动对水平堆叠条形图（分量拆解一目了然）
+  - 互动网络图（节点大小/颜色编码活跃度，边粗细/透明度编码强度）
+  - AI 分析报告：结构化 prompt，包含 Top 20 互动对数据和具体分析要求
+  - 输出文件名包含时间区间信息
 
 - **远程数据库支持**
   - 可直接使用数据库连接字符串访问远程 PostgreSQL 数据库
@@ -205,11 +211,20 @@ uv run python train.py
 ## 输出结果
 
 程序输出的文件均存储在 `output/` 目录下：
-- **interaction_scores.csv**：包含用户对（唯一组合）的 QQ 号、昵称、行为得分、语义得分、网络得分和最终互动活跃度得分（GBK 编码）。
-- **语义相似度热力图**、**行为得分热力图**、**网络拓扑得分热力图**：PNG 格式图表，文件名中包含时间区间（如有）。
-- **interaction_network.png**：用户互动网络图。
-- **user_mapping.txt**：用户映射文件，列出所有用户的索引、QQ 号和昵称。
-- **analysis_report.md**（可选）：调用 DeepSeek API 自动生成的详细分析报告，报告中包含用户映射表及其它关键信息。
+
+| 文件 | 说明 |
+|------|------|
+| `interaction_scores.csv` | 用户对得分表（QQ 号、昵称、行为/语义/网络/亲密度，GBK 编码） |
+| `semantic_heatmap.png` | 语义相似度热力图（按活跃度排序，对角遮蔽） |
+| `behavior_heatmap.png` | 行为互动热力图 |
+| `network_heatmap.png` | 网络拓扑热力图 |
+| `intimacy_heatmap.png` | 综合亲密度热力图 |
+| `top_pairs.png` | Top 20 互动对水平条形图（行为/语义/网络分量拆解） |
+| `interaction_network.png` | 互动网络图（节点大小=活跃度，边粗细=亲密度） |
+| `user_mapping.txt` | 用户索引、QQ 号、昵称对照表 |
+| `analysis_report.md` | （可选）DeepSeek AI 生成的结构化人际关系分析报告 |
+
+文件名中包含时间区间信息（如 `_2025-01-01-end`）。
 
 ---
 
@@ -237,7 +252,7 @@ uv run python train.py
 
 # Chat Interaction Affinity Analysis Tool (Third Eye Insight)
 
-This project is a deep learning and natural language processing based tool for automated analysis of user interaction affinity in group and private chats. It extracts chat records from an SQLite (plaintext or SQLCipher-encrypted) or remote PostgreSQL database, calculates interaction scores between users by combining text embeddings and behavioral statistics, and generates detailed visualizations and an automated analysis report.
+This project is a deep learning and natural language processing based tool for automated analysis of user interaction intimacy in group and private chats. It extracts chat records from SQLite (plaintext or SQLCipher-encrypted) or remote PostgreSQL databases, fuses semantic, behavioral, and network-topology signals, and produces detailed visualizations plus an optional AI analysis report.
 
 ## Features
 
@@ -251,16 +266,18 @@ This project is a deep learning and natural language processing based tool for a
   - Automatic detection of `nt_msg.db` at startup with a prompt to strip the 1024-byte header.
 
 - **Interaction Metrics Calculation**
-  - Uses SentenceTransformer to obtain text embeddings and computes each user's average embedding (mean pooling and normalization).
-  - Constructs a behavior matrix by counting consecutive interactions within a 5-minute window.
-  - Calculates a semantic similarity matrix (cosine similarity between average embeddings).
-  - Applies ECDF-based discrete mapping to amplify subtle differences.
-  - Fuses semantic, behavior, and network topology scores with configurable or auto-optimized weights.
+  - Text embeddings via SentenceTransformer (multi-threaded batch processing).
+  - Semantic score: mean cosine similarity of actual interaction message pairs in a 5-minute sliding window.
+  - Behavioral score: 5-minute sliding-window co-occurrence with exponential time decay.
+  - Network score: Jaccard common-neighbor coefficient on the interaction graph.
+  - Supports automatic fusion-weight optimization with scipy.
 
 - **Visualization & Report Generation**
-  - Generates heatmaps (semantic, behavior, network), network graphs, and CSV output.
-  - Optionally generates a detailed analysis report using the DeepSeek API.
-  - Supports focusing on a specific user.
+  - Heatmaps for semantic, behavior, network, and final intimacy scores (activity-sorted with masked diagonal).
+  - Top-N interaction pairs stacked bar chart with component decomposition.
+  - Interaction network graph with node/edge visual encoding.
+  - Structured AI report prompt with Top-20 pair data and targeted analysis requirements.
+  - Output file names include the selected time range.
 
 - **Interactive Configuration**
   - No command-line arguments — all options are presented as interactive prompts at startup.
@@ -270,24 +287,24 @@ This project is a deep learning and natural language processing based tool for a
 The core principle combines three metrics:
 
 1. **Text Embedding & Semantic Similarity**
-   Each message is converted to a vector using SentenceTransformer. Per-user average embeddings are computed and normalized; cosine similarity forms the semantic matrix. ECDF discrete mapping spreads scores across a discrete scale.
+  Each message is encoded with SentenceTransformer. Instead of comparing global per-user mean vectors only, the program identifies real interaction message pairs within a 5-minute sliding window and computes their mean cosine similarity. This better captures "reply-level" semantic resonance. ECDF-based mapping is used to amplify subtle differences.
 
 2. **Behavioral Statistics**
-   Counts consecutive interactions within a 5-minute window. Log-transforms the counts and normalizes via ECDF mapping.
+  Within each 5-minute window, all cross-user interactions are counted (not just adjacent messages), with exponential time-decay weighting (tau=150s). Older co-occurrences contribute less. The weighted count is log-transformed and normalized.
 
-3. **Network Topology**
-   Builds an interaction graph with NetworkX and computes degree centrality per user. The network score for a pair is the average of their centralities.
+3. **Network Topology (Jaccard Common Neighbors)**
+  Based on the behavioral interaction graph, the network score is the Jaccard coefficient of common neighbors between two users. It measures social-circle overlap (shared contacts ratio), independent of absolute activity level.
 
 4. **Fusion**
-   Three metrics are fused with configurable weights (default: semantic 0.4, behavior 0.4, network 0.2). Automatic weight optimization via scipy is also available.
+  The semantic, behavioral, and network metrics are fused with configurable weights (default: semantic 0.4, behavior 0.4, network 0.2). Automatic weight optimization via scipy can maximize score variance for stronger separability.
 
 ## Project Structure
 
 ```
-QQ-Interaction-Analysis-Tool/
+Third-Eye-Insight/
 ├── extract_chat_data.py       # Data extraction and cleaning (SQLite / SQLCipher / PostgreSQL)
-├── train.py                   # Main program: metrics calculation, fusion, output
-├── visualization.py           # Heatmaps and network graph generation
+├── train.py                   # Main program: metric calculation, fusion, output
+├── visualization.py           # Heatmaps, network graph, top-pairs chart
 ├── config.json                # SQLCipher encryption configuration
 ├── output/                    # Output directory: CSV, charts, analysis report
 └── README.md                  # This document
@@ -342,6 +359,22 @@ The program will ask you step by step for:
 
 After data extraction, you will be prompted for an optional time range filter (format: YYYY/MM/DD).
 
+## Implementation Details
+
+The implementation includes the following steps:
+
+1. **Data Extraction and Cleaning**
+  Extract chat records from SQLite or remote PostgreSQL, filter system accounts (10000 and 2854196310), merge group nickname / QQ name fields, and normalize message text.
+
+2. **Database Preprocessing**
+  At startup, the program can detect `nt_msg.db` and guide 1024-byte header stripping to produce `nt_msg.clean_e.db`. SQLCipher parameters are loaded from `config.json` for transparent decryption.
+
+3. **Embedding and Feature Computation**
+  Compute sentence embeddings in batches with multi-threading, then derive semantic pair scores, time-decayed behavioral interaction scores, and Jaccard network scores with sliding-window logic.
+
+4. **Fusion and Output**
+  Optionally auto-tune fusion weights, then export CSV, multi-metric heatmaps, interaction network graph, Top-N interaction pairs chart, user mapping, and an optional structured AI analysis report.
+
 ## Database Preprocessing
 
 **Encrypted NTQQ database (`nt_msg.db`):**
@@ -374,11 +407,19 @@ Set `encrypted` to `false` (or omit it) for plaintext SQLite databases.
 
 All output files are saved in the `output/` directory:
 
-- **interaction_scores.csv**: CSV (GBK encoding) with unique user pair data: UserID, Nickname, BehaviorScore, SemanticScore, NetworkScore, Final Interaction Activity Score.
-- **Heatmaps**: PNG files for semantic similarity, behavior scores, and network topology scores. File names include the time range if specified.
-- **interaction_network.png**: Network graph of user interactions.
-- **user_mapping.txt**: Maps user index, QQ number, and nickname.
-- **analysis_report.md** (optional): Detailed analysis report generated via DeepSeek API.
+| File | Description |
+|------|-------------|
+| `interaction_scores.csv` | Pairwise score table (QQ IDs, nicknames, behavior/semantic/network/final intimacy; GBK encoding) |
+| `semantic_heatmap.png` | Semantic heatmap (activity-sorted, masked diagonal) |
+| `behavior_heatmap.png` | Behavioral heatmap |
+| `network_heatmap.png` | Network-topology heatmap |
+| `intimacy_heatmap.png` | Final intimacy heatmap |
+| `top_pairs.png` | Top 20 interaction pairs horizontal stacked bar chart (component breakdown) |
+| `interaction_network.png` | Interaction network graph (node size = activity, edge width = intimacy) |
+| `user_mapping.txt` | User index / QQ / nickname mapping |
+| `analysis_report.md` | (Optional) Structured relationship analysis report generated by DeepSeek AI |
+
+File names include the selected time range (for example, `_2025-01-01-end`).
 
 ## License
 

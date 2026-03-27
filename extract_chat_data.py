@@ -109,6 +109,7 @@ def _build_local_query(mode: str, identifier: int, encrypted: bool) -> str:
           AND content IS NOT NULL
           AND TRIM(content) <> ''
           AND "40033" NOT IN (2854196310, 10000)
+        ORDER BY "40050"
     """
 
 
@@ -162,6 +163,7 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
                   AND plain_text IS NOT NULL AND TRIM(plain_text) <> ''
                   AND (message->>'group_id')::bigint = %s
                   AND (message->>'sender_id')::bigint NOT IN (2854196310, 10000)
+                ORDER BY time
             """
         else:
             query = """
@@ -173,6 +175,7 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
                   AND plain_text IS NOT NULL AND TRIM(plain_text) <> ''
                   AND (message->>'sender_id')::bigint = %s
                   AND (message->>'sender_id')::bigint NOT IN (2854196310, 10000)
+                ORDER BY time
             """
         try:
             df = pd.read_sql_query(query, engine, params=(identifier,))

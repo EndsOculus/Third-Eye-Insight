@@ -9,6 +9,7 @@ import csv
 import json
 import math
 import numpy as np
+from collections import deque
 import pandas as pd
 import torch
 import networkx as nx
@@ -18,7 +19,7 @@ from datetime import datetime
 from scipy.optimize import minimize
 from sentence_transformers import SentenceTransformer
 from extract_chat_data import extract_chat_data
-from visualization import plot_interaction_network, plot_custom_heatmap, filter_for_gbk
+from visualization import plot_interaction_network, plot_custom_heatmap, plot_top_pairs, filter_for_gbk
 
 
 def discrete_mapping(matrix, L=1000):
@@ -42,13 +43,13 @@ def optimize_weights(sem, beh, net):
         triu_idx = np.triu_indices_from(final, k=1)
         return -np.var(final[triu_idx])
     cons = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
-    bounds = [(0.2, 0.4)] * 3
-    w0 = np.array([0.45, 0.45, 0.1])
+    bounds = [(0.1, 0.6)] * 3
+    w0 = np.array([1/3, 1/3, 1/3])
     res = minimize(objective, w0, bounds=bounds, constraints=cons)
     if res.success:
         return res.x
     print("[WARN] 自动调整权重未成功，使用默认权重。")
-    return w0
+    return np.array([0.4, 0.4, 0.2])
 
 
 def encode_batch(texts, model, batch_size=32):
@@ -73,14 +74,15 @@ def parallel_encode(chat_df, model_name, batch_size=32, num_workers=4):
     return pd.concat(results).reset_index(drop=True)
 
 
-def generate_report_via_api(api_key, report_content, save_path="output/analysis_report.md"):
+def generate_report_via_api(api_key, report_content, save_path="output/analysis_report.md",
+                            system_prompt="You are a helpful assistant."):
     import openai
     try:
         client = openai.OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         response = client.chat.completions.create(
-            model="deepseek-reasoner",
+            model="deepseek-chat",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": report_content}
             ],
             stream=False
@@ -230,7 +232,7 @@ if end_date_str:
 if chat_df.empty:
     print("[ERROR] 筛选后数据为空，请检查时间范围。")
     exit(1)
-chat_df.reset_index(drop=True, inplace=True)
+chat_df = chat_df.sort_values('timestamp').reset_index(drop=True)
 time_range_str = ""
 if start_date_str or end_date_str:
     s = start_date_str.replace("/", "-") if start_date_str else "start"
@@ -257,54 +259,75 @@ model_name = "paraphrase-multilingual-MiniLM-L12-v2"
 chat_df = parallel_encode(chat_df, model_name, batch_size=32, num_workers=4)
 print("文本嵌入计算完成。")
 
-# 4. 计算每个用户的平均文本嵌入（均值后归一化）
-user_text_embeddings = {}
-for user in chat_df['sender_id'].unique():
-    embeds = chat_df[chat_df['sender_id'] == user]['text_embedding'].tolist()
-    avg_embed = np.mean(embeds, axis=0)
-    norm_val = np.linalg.norm(avg_embed)
-    user_text_embeddings[user] = avg_embed / norm_val if norm_val > 0 else avg_embed
-
-# 5. 计算语义相似度矩阵（向量化余弦相似度，嵌入已归一化）
-users = list(user_text_embeddings.keys())
+# 4. 用户列表与索引
+users = list(chat_df['sender_id'].unique())
 num_users = len(users)
-emb_matrix = np.array([user_text_embeddings[u] for u in users])
-semantic_matrix = emb_matrix @ emb_matrix.T
+user_to_index = {user: idx for idx, user in enumerate(users)}
+
+# 5. 语义相似度矩阵（基于 5 分钟窗口内实际交互消息对的余弦相似度均值）
+print("计算语义相似度矩阵（交互对）...")
+sem_scores = np.zeros((num_users, num_users))
+sem_counts = np.zeros((num_users, num_users))
+win = deque()  # (timestamp, sender_idx, normed_embedding)
+for _, row in chat_df.iterrows():
+    t_i = row['timestamp']
+    s_i = user_to_index[row['sender_id']]
+    emb_i = row['text_embedding']
+    n_i = np.linalg.norm(emb_i)
+    emb_i_n = emb_i / n_i if n_i > 0 else emb_i
+    while win and (t_i - win[0][0]).total_seconds() > 300:
+        win.popleft()
+    for t_j, s_j, emb_j_n in win:
+        if s_j != s_i:
+            sim = float(np.dot(emb_i_n, emb_j_n))
+            sem_scores[s_i, s_j] += sim
+            sem_scores[s_j, s_i] += sim
+            sem_counts[s_i, s_j] += 1
+            sem_counts[s_j, s_i] += 1
+    win.append((t_i, s_i, emb_i_n))
+semantic_matrix = np.where(sem_counts > 0, sem_scores / sem_counts, 0.0)
 semantic_matrix_mapped = discrete_mapping(semantic_matrix, L=1000)
-print("映射后的语义相似度矩阵（前5x5）：")
+print("语义相似度矩阵（前5x5）：")
 print(semantic_matrix_mapped[:5, :5])
 
-# 6. 构造行为互动矩阵（5分钟内连续消息互动次数）
-interaction_counts = np.zeros((num_users, num_users), dtype=int)
-user_to_index = {user: idx for idx, user in enumerate(users)}
-for i in range(len(chat_df) - 1):
-    s_i = chat_df.iloc[i]['sender_id']
-    s_j = chat_df.iloc[i+1]['sender_id']
-    if s_i == s_j:
-        continue
-    t_i = chat_df.iloc[i]['timestamp']
-    t_j = chat_df.iloc[i+1]['timestamp']
-    if (t_j - t_i).total_seconds() <= 300:
-        idx_i = user_to_index[s_i]
-        idx_j = user_to_index[s_j]
-        interaction_counts[idx_i, idx_j] += 1
-        interaction_counts[idx_j, idx_i] += 1
-behavior_matrix = np.log1p(interaction_counts)
+# 6. 行为互动矩阵（5 分钟滑动窗口 + 指数时间衰减）
+print("计算行为互动矩阵（滑动窗口）...")
+TAU = 150.0  # 衰减时间常数（秒）
+interaction_weights = np.zeros((num_users, num_users))
+win = deque()  # (timestamp, sender_idx)
+for _, row in chat_df.iterrows():
+    t_i = row['timestamp']
+    s_i = user_to_index[row['sender_id']]
+    while win and (t_i - win[0][0]).total_seconds() > 300:
+        win.popleft()
+    for t_j, s_j in win:
+        if s_j != s_i:
+            w = math.exp(-(t_i - t_j).total_seconds() / TAU)
+            interaction_weights[s_i, s_j] += w
+            interaction_weights[s_j, s_i] += w
+    win.append((t_i, s_i))
+behavior_matrix = np.log1p(interaction_weights)
 max_behavior = np.max(behavior_matrix)
 behavior_norm = behavior_matrix / max_behavior if max_behavior > 0 else behavior_matrix
 behavior_norm = np.round(behavior_norm * 999) / 999.0
 print("行为得分离散化范围：", behavior_norm.min(), behavior_norm.max())
 
-# 7. 网络拓扑分析：度中心性
+# 7. 网络拓扑：Jaccard 共同邻居系数
 G = nx.Graph()
-G.add_nodes_from(users)
+G.add_nodes_from(range(num_users))
 for i in range(num_users):
     for j in range(i+1, num_users):
-        if interaction_counts[i, j] > 0:
-            G.add_edge(users[i], users[j], weight=int(interaction_counts[i, j]))
-net_centrality = nx.degree_centrality(G)
-centrality_values = np.array([net_centrality.get(u, 0) for u in users])
-network_matrix = (centrality_values[:, None] + centrality_values[None, :]) / 2
+        if interaction_weights[i, j] > 0:
+            G.add_edge(i, j, weight=float(interaction_weights[i, j]))
+network_matrix = np.zeros((num_users, num_users))
+for i in range(num_users):
+    for j in range(i+1, num_users):
+        nbrs_i = set(G.neighbors(i))
+        nbrs_j = set(G.neighbors(j))
+        union = nbrs_i | nbrs_j
+        jac = len(nbrs_i & nbrs_j) / len(union) if union else 0.0
+        network_matrix[i, j] = jac
+        network_matrix[j, i] = jac
 
 # 8. 用户名称映射与标签
 os.makedirs('output', exist_ok=True)
@@ -324,7 +347,7 @@ plot_custom_heatmap(behavior_norm, labels, title="行为得分热力图" + time_
 plot_custom_heatmap(network_matrix, labels, title="网络拓扑得分热力图" + time_range_str, save_path=f"output/network_heatmap{time_range_str}.png")
 
 edges = [(i, j, (network_matrix[i,j] + semantic_matrix_mapped[i,j] + behavior_norm[i,j]) / 3)
-         for i in range(num_users) for j in range(i+1, num_users) if interaction_counts[i, j] > 0]
+         for i in range(num_users) for j in range(i+1, num_users) if interaction_weights[i, j] > 0]
 if focus_user:
     focus_indices = {idx for idx, u in enumerate(users) if u == focus_user}
     edges = [(i, j, w) for i, j, w in edges if i in focus_indices or j in focus_indices]
@@ -338,6 +361,12 @@ else:
     w_sem, w_beh, w_net = 0.4, 0.4, 0.2
 final_intimacy = np.maximum(w_sem * semantic_matrix_mapped + w_beh * behavior_norm + w_net * network_matrix, 0)
 print("最终互动活跃度得分范围：", final_intimacy.min(), final_intimacy.max())
+
+plot_custom_heatmap(final_intimacy, labels, title="综合亲密度热力图" + time_range_str,
+                    save_path=f"output/intimacy_heatmap{time_range_str}.png")
+plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped, network_matrix,
+               users, user_name_map,
+               save_path=f"output/top_pairs{time_range_str}.png")
 
 # 11. CSV 输出
 if focus_user:
@@ -360,20 +389,66 @@ print(f"CSV 文件已保存到 {csv_path}")
 
 # 12. 报告生成
 if args.report:
-    user_mapping_str = "## 用户映射表\n\n| 索引 | QQ号 | 昵称 |\n| --- | --- | --- |\n"
-    for idx, u in enumerate(users):
-        user_mapping_str += f"| {idx} | {u} | {user_name_map.get(u, str(u))} |\n"
-    report_prefix = f"以下数据仅包含群聊中 QQ 号为 {focus_user} 的用户与其他用户之间的互动记录。" if focus_user else "以下数据基于群聊中所有用户的聊天内容。"
-    report_content = (
-        f"{user_mapping_str}\n{report_prefix}\n"
-        f"群聊号码：{args.group}\n"
-        f"数据时间范围：{chat_df['timestamp'].min().strftime('%Y/%m/%d')} 至 {chat_df['timestamp'].max().strftime('%Y/%m/%d')}\n"
-        f"总用户数：{num_users}\n总消息数：{len(chat_df)}\n"
-        f"行为矩阵：{behavior_matrix.tolist()}\n"
-        f"文本内容相似度矩阵：{semantic_matrix.tolist()}\n"
+    # 用户映射 + 消息量
+    msg_counts = chat_df['sender_id'].value_counts()
+    user_table = "## 用户列表\n\n| 昵称 | QQ号 | 消息数 |\n| --- | --- | --- |\n"
+    for u in users:
+        user_table += f"| {user_name_map.get(u, u)} | {u} | {msg_counts.get(u, 0)} |\n"
+
+    # Top 20 互动对
+    pair_scores = []
+    for i in range(num_users):
+        for j in range(i + 1, num_users):
+            if final_intimacy[i, j] > 0:
+                pair_scores.append((
+                    user_name_map.get(users[i], users[i]),
+                    user_name_map.get(users[j], users[j]),
+                    final_intimacy[i, j],
+                    behavior_norm[i, j],
+                    semantic_matrix_mapped[i, j],
+                    network_matrix[i, j],
+                ))
+    pair_scores.sort(key=lambda x: x[2], reverse=True)
+    top_table = "## Top 20 互动对\n\n| 用户A | 用户B | 亲密度 | 行为 | 语义 | 网络 |\n| --- | --- | --- | --- | --- | --- |\n"
+    for na, nb, intim, beh, sem, net in pair_scores[:20]:
+        top_table += f"| {na} | {nb} | {intim:.3f} | {beh:.3f} | {sem:.3f} | {net:.3f} |\n"
+
+    scope_desc = (f"聚焦用户 {user_name_map.get(focus_user, focus_user)} 与其他成员的互动"
+                  if focus_user else "群内所有成员互动")
+
+    system_prompt = (
+        "你是一名群体社会关系分析师，擅长从聊天数据的量化指标中解读人际关系模式。"
+        "请用流畅、洞察深刻的中文撰写分析报告，避免机械罗列数字，重点挖掘有价值的社群结构和人际关系特征。"
+        "报告使用 Markdown 格式，包含标题、分节和重点加粗。"
     )
+    user_prompt = f"""请根据以下 QQ 群聊互动分析数据，撰写一份结构化的人际关系分析报告。
+
+## 分析背景
+- 群号：{args.group}
+- 数据范围：{chat_df['timestamp'].min().strftime('%Y/%m/%d')} 至 {chat_df['timestamp'].max().strftime('%Y/%m/%d')}
+- 总用户数：{num_users}，总消息数：{len(chat_df)}
+- 分析范围：{scope_desc}
+- 融合权重：语义 {w_sem:.2f} / 行为 {w_beh:.2f} / 网络拓扑 {w_net:.2f}
+
+## 指标说明
+- **行为得分**：5 分钟滑动窗口内时间加权互动频率，反映两人对话的密集程度
+- **语义得分**：交互消息对的平均余弦相似度，反映两人聊天内容的相关程度
+- **网络得分**：Jaccard 共同邻居系数，反映两人社交圈的重叠程度
+- **亲密度**：三项加权融合（0-1），综合衡量互动关系强度
+
+{user_table}
+
+{top_table}
+
+## 报告要求
+1. **核心关系识别**：Top 5 关系对逐一解读（三维度对比，关系性质判断）
+2. **社群圈层分析**：识别群内存在哪些小圈子，各圈子的特征
+3. **关键节点**：谁是连接不同圈子的桥梁？谁是信息传播中心？
+4. **边缘成员**：哪些用户互动较少？可能原因？
+5. **整体评估**：群体活跃度、社群健康度的综合判断和建议
+"""
     api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    generate_report_via_api(api_key, report_content)
+    generate_report_via_api(api_key, user_prompt, system_prompt=system_prompt)
 else:
     print("[INFO] 未选择生成分析报告，跳过。")
 
