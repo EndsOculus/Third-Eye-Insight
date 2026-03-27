@@ -22,11 +22,14 @@
 - **多指标融合**  
   除了文本语义相似度，还结合行为互动（连续消息互动次数）和网络拓扑指标（基于度中心性），通过离散化映射拉大微小差异，并支持自动调整融合权重。
 
-- **灵活聚焦分析**  
-  通过 `--focus-user` 参数，可以只提取指定用户与其他用户之间的互动数据；同时支持 `--lite` 模式，仅基于该用户的相关数据进行分析。
+- **灵活聚焦分析**
+  可以只提取指定用户与其他用户之间的互动数据；同时支持精简模式，仅基于该用户的相关数据进行分析。
 
-- **远程数据库支持**  
-  增加 `--remote` 参数，允许通过数据库连接字符串直接连接远程 PostgreSQL 数据库，满足多种部署场景的需求。
+- **远程数据库支持**
+  允许通过数据库连接字符串直接连接远程 PostgreSQL 数据库，满足多种部署场景的需求。
+
+- **SQLCipher 加密数据库支持**
+  通过 `config.json` 配置加密参数，可直接读取 NTQQ 原始加密数据库，无需额外转换步骤。
 
 - **全面可视化与报告生成**  
   输出 CSV 文件、生成语义、行为、网络等多个指标的热力图和网络图，并自动生成包含用户映射表的详细分析报告。
@@ -59,11 +62,13 @@
    - 合并群昵称（字段 40090）与 QQ 名称（字段 40093），默认优先使用群昵称。  
    - 清洗消息内容，保留中文、英文、数字、常见符号和 Emoji，无法显示的字符替换为 “?”。
 
-2. **数据库预处理**  
-   - 对于 SQLite 数据库，若原始数据库文件包含前1024字节的无用数据，可使用如下命令进行预处理：
+2. **数据库预处理**
+   - 程序启动时会自动检测当前目录下是否存在 `nt_msg.db`，若存在则提示是否剥离前 1024 字节文件头生成 `nt_msg.clean_e.db`，并可选择删除原文件。
+   - 也可手动执行：
      ```bash
-     python -c "open('nt_msg.clean.db','wb').write(open('nt_msg.db','rb').read()[1024:])"
+     python -c "open('nt_msg.clean_e.db','wb').write(open('nt_msg.db','rb').read()[1024:])"
      ```
+   - 加密数据库通过 `config.json` 配置 SQLCipher 参数（密码、页大小、KDF 迭代次数等），程序自动识别并解密读取。
      
 3. **文本嵌入与特征计算**  
    - 使用批量处理和多线程加速计算文本嵌入；对每个用户的消息向量取均值，并归一化后构造语义相似度矩阵。  
@@ -88,109 +93,110 @@
   - 离散化映射（ECDF 映射）拉大细微差异  
   - 支持自动调整指标融合权重  
 
-- **可视化与报告生成**  
-  - 输出 CSV 文件、热力图、网络图等  
-  - 自动生成包含用户映射表的详细分析报告  
-  - 支持聚焦分析特定用户（--focus-user 参数）  
+- **可视化与报告生成**
+  - 输出 CSV 文件、热力图、网络图等
+  - 自动生成包含用户映射表的详细分析报告
+  - 支持聚焦分析特定用户
   - 输出文件名中包含时间区间信息
 
-- **远程数据库支持**  
-  - 通过 `--remote` 参数可直接使用数据库连接字符串访问远程 PostgreSQL 数据库
+- **远程数据库支持**
+  - 可直接使用数据库连接字符串访问远程 PostgreSQL 数据库
+
+- **SQLCipher 加密数据库支持**
+  - 通过 `config.json` 配置加密参数，自动识别并解密 NTQQ 加密数据库
+  - 支持 `nt_msg.db` 文件头剥离（启动时自动检测并提示）
 
 ---
 
 ## 安装方法
 
-确保使用 Python 3.13.2，并使用 pip 安装以下依赖：
+确保使用 Python 3.13.2（Windows 官方安装包，非 MSYS2 内置 Python）。
+
+**推荐：使用 `uv`**
+
+> **注意**：若系统 PATH 中 MSYS2 的 Python（如 `C:/msys64/ucrt64/bin/python.exe`）排在 Windows Python 之前，`uv pip install` 会报错 `Unknown operating system: mingw_x86_64_ucrt_gnu`。
+> 解决方法：显式指定 Python 解释器路径：
+> ```bash
+> uv pip install --python "C:/Users/<你的用户名>/AppData/Local/Programs/Python/Python313/python.exe" \
+>   pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
+> ```
+
+> **注意**：`uv add` 需要项目存在 `pyproject.toml`，直接在脚本目录运行会报错 `No pyproject.toml found`。
+> 此项目为单目录脚本，请使用 `uv pip install` 而非 `uv add`。
 
 ```bash
-pip install pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn
+uv pip install --python "C:/Users/<你的用户名>/AppData/Local/Programs/Python/Python313/python.exe" \
+  pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
+```
+
+**或者直接使用 pip（更简单）：**
+
+```bash
+"C:/Users/<你的用户名>/AppData/Local/Programs/Python/Python313/python.exe" -m pip install \
+  pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
 ```
 
 其他版本不确定兼容性，若遇到问题请切换至 Python 3.13.2。
+
+如需读取 SQLCipher 加密数据库，还需安装 MSYS2 并确保 `libsqlcipher-0.dll` 存在于 `C:/msys64/mingw64/bin/`（MSYS2 中执行 `pacman -S mingw-w64-x86_64-sqlcipher`）。
 
 ---
 
 ## 使用方法
 
-### 命令行参数说明
-
-- **--group**：群聊号码（群聊模式下有效）。
-- **--db**：数据库连接字符串或本地数据库文件路径。例如：
-  - SQLite 本地数据库：`nt_msg.clean.db`
-  - PostgreSQL 连接字符串：`postgresql://username:password@host:port/dbname`
-- **--mode**：模式，`group` 表示群聊，`c2c` 表示私聊。
-- **--id**：在群聊模式下与 --group 相同；在私聊模式下为好友 QQ 号（可选）。
-- **--focus-user**：指定聚焦分析某个用户（仅提取该用户与其他用户的互动数据）。
-- **--lite**：启用精简模式，仅保留与 focus-user 相关的记录（需同时指定 --focus-user）。
-- **--font**：图表使用的中文字体（默认 "Microsoft YaHei"）。
-- **--boost**：启用 GPU 加速（默认关闭）。
-- **--report**：生成详细分析报告（调用 API）。
-- **--auto-weight**：自动调整指标融合权重。
-- **--remote**：使用远程数据库连接（否则默认使用本地数据库文件）。
-
-### 示例
-
-**群聊模式（分析群聊 114514，聚焦用户 1919810）：**
+直接运行程序，按交互式提示操作：
 
 ```bash
-python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --focus-user 1919810 --font "Microsoft YaHei"
+uv run python train.py
 ```
 
-**私聊模式（分析与 QQ 号 1919810 的私聊数据）：**
+程序将依次询问以下配置项（括号内为默认值，直接回车接受）：
 
-```bash
-python train.py --group 0 --db nt_msg.clean.db --mode c2c --id 1919810 --font "Microsoft YaHei"
-```
+| 提示 | 说明 |
+|------|------|
+| 数据库文件路径 | 本地 SQLite 路径或 PostgreSQL 连接字符串，默认读取 `config.json` 中的 `db_file` |
+| 分析模式 | 1 = 群聊，2 = 私聊 |
+| 群号 / 好友 QQ 号 | 根据模式填写对应 ID |
+| 聚焦用户 QQ 号 | 可选，仅分析该用户相关互动；留空则分析所有用户 |
+| 精简模式 | 聚焦用户存在时可选，仅保留该用户参与的互动记录 |
+| 使用远程数据库 | 连接字符串模式（PostgreSQL） |
+| 启用 GPU 加速 | 需要 CUDA 环境 |
+| 自动调整融合权重 | 使用 scipy 优化语义/行为/网络三权重 |
+| 生成 AI 分析报告 | 需设置环境变量 `DEEPSEEK_API_KEY` |
+| 图表中文字体 | 默认 Microsoft YaHei |
 
-**Lite 模式（仅分析 focus-user 的相关互动）：**
-
-```bash
-python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --focus-user 1919810 --lite --font "Microsoft YaHei"
-```
-
-**远程数据库连接示例：**
-
-```bash
-python train.py --group 114514 --db "postgresql://sr:your_password@127.0.0.1:5432/botmsg" --mode group --id 114514 --font "Microsoft YaHei" --remote
-```
-
-**在脚本中直接提取数据：**
-
-```python
-from extract_chat_data import extract_chat_data
-
-# 本地 SQLite 数据库
-df_local = extract_chat_data("nt_msg.clean.db", 114514, mode="group")
-
-# 远程 PostgreSQL 数据库
-df_remote = extract_chat_data(
-    "postgresql://username:password@host:5432/dbname",
-    114514,
-    mode="group",
-    remote=True,
-)
-```
-
-程序启动后会提示输入起始和结束日期（格式 YYYY/MM/DD）：
-- 同时输入起始和结束日期：仅分析该时间段数据。
-- 直接回车：默认分析所有数据。
-- 只输入起始日期：从该日期开始分析。
-- 只输入结束日期：截止至该日期。
+数据提取完成后还会提示输入时间范围（格式 YYYY/MM/DD），直接回车表示不限制。
 
 ---
 
 ## 数据库预处理说明
 
-- **SQLite 数据库预处理**：  
-  如果原始数据库（nt_msg.db）包含前 1024 字节的无用数据，请运行以下命令生成清洗后的数据库文件：
+- **SQLite 加密数据库（NTQQ nt_msg.db）**：
+  程序启动时自动检测当前目录下的 `nt_msg.db`，提示是否剥离前 1024 字节文件头生成 `nt_msg.clean_e.db`，并可选择删除原文件。
+  也可手动执行：
   ```bash
-  python -c "open('nt_msg.clean.db','wb').write(open('nt_msg.db','rb').read()[1024:])"
+  python -c "open('nt_msg.clean_e.db','wb').write(open('nt_msg.db','rb').read()[1024:])"
   ```
 
-- **PostgreSQL 数据库**：  
-  请确保你的数据库连接字符串正确，并且 PostgreSQL 服务已启动。连接字符串格式如：  
-  ```bash
+- **config.json 加密配置**：
+  在项目目录创建 `config.json`，配置 SQLCipher 解密参数：
+  ```json
+  {
+    "db_file": "nt_msg.clean_e.db",
+    "encrypted": true,
+    "sqlcipher_dll": "C:/msys64/mingw64/bin/libsqlcipher-0.dll",
+    "cipher_page_size": 4096,
+    "kdf_iter": 4000,
+    "cipher_hmac_algorithm": "HMAC_SHA1",
+    "cipher_kdf_algorithm": "PBKDF2_HMAC_SHA512",
+    "password": "your_password_here"
+  }
+  ```
+  `encrypted` 设为 `false` 或省略时，直接使用明文 SQLite。
+
+- **PostgreSQL 数据库**：
+  确保连接字符串正确，格式：
+  ```
   postgresql://username:password@host:port/dbname
   ```
 
@@ -227,113 +233,152 @@ df_remote = extract_chat_data(
 
 ---
 
-## English Version
+<a id="english-version"></a>
 
-# Third Eye Insight
+# Chat Interaction Affinity Analysis Tool (Third Eye Insight)
 
-## Project Name Origin
+This project is a deep learning and natural language processing based tool for automated analysis of user interaction affinity in group and private chats. It extracts chat records from an SQLite (plaintext or SQLCipher-encrypted) or remote PostgreSQL database, calculates interaction scores between users by combining text embeddings and behavioral statistics, and generates detailed visualizations and an automated analysis report.
 
-The project name "Third Eye Insight" is derived from the character Komeiji Satori in the Touhou Project series. 
-Satori possesses the ability to read minds, and her "third eye" symbolizes insight and perception. 
-The name reflects our goal to analyze chat records deeply and uncover the underlying interaction patterns among users.
+## Features
 
-## Differences and Enhancements
+- **Data Extraction & Cleaning**
+  - Extracts chat data from SQLite databases (group_msg_table for groups, c2c_msg_table for private chats).
+  - Automatically filters out system messages (QQ numbers 10000 and 2854196310).
+  - Supports interactive time-range filtering (format: YYYY/MM/DD).
 
-Compared to our previous project based on data cleaning and traditional statistics, this project has been enhanced in several ways:
-- **Deep Learning Text Embeddings**: Utilizes pre-trained SentenceTransformer models to capture semantic features, leading to more accurate similarity calculations.
-- **Multi-Metric Fusion**: Combines semantic similarity, behavioral statistics, and network topology metrics. It applies ECDF-based discrete mapping to amplify subtle differences and supports auto-weight optimization.
-- **Focused Analysis**: With the `--focus-user` and `--lite` parameters, you can target the interactions of a specific user.
-- **Remote Database Support**: Offers the option to connect to remote PostgreSQL databases via a connection string.
-- **Comprehensive Visualization and Reporting**: Outputs CSV files, heatmaps, network graphs, and can automatically generate a detailed analysis report.
+- **SQLCipher Encrypted Database Support**
+  - Reads NTQQ's native encrypted database directly via `config.json` — no manual conversion needed.
+  - Automatic detection of `nt_msg.db` at startup with a prompt to strip the 1024-byte header.
 
-## Implementation Details
+- **Interaction Metrics Calculation**
+  - Uses SentenceTransformer to obtain text embeddings and computes each user's average embedding (mean pooling and normalization).
+  - Constructs a behavior matrix by counting consecutive interactions within a 5-minute window.
+  - Calculates a semantic similarity matrix (cosine similarity between average embeddings).
+  - Applies ECDF-based discrete mapping to amplify subtle differences.
+  - Fuses semantic, behavior, and network topology scores with configurable or auto-optimized weights.
 
-The implementation includes the following steps:
-1. **Data Extraction and Cleaning**:  
-   Extract chat records from an unencrypted SQLite or remote PostgreSQL database, filtering out system messages (e.g., QQ numbers 10000 and 2854196310) and merging group nicknames with QQ names.
-2. **Text Embedding Extraction**:  
-   Compute text embeddings using SentenceTransformer in batch mode with multi-threading.
-3. **Semantic Similarity Calculation**:  
-   Compute the cosine similarity between users’ average text embeddings and apply ECDF-based discrete mapping.
-4. **Behavior Score Calculation**:  
-   Count consecutive interactions within 5 minutes, normalize using log transformation, and apply discrete mapping.
-5. **Network Topology Metrics**:  
-   Construct an interaction network using NetworkX, compute degree centrality, and derive network scores.
-6. **Fusion and Output**:  
-   Fuse the semantic, behavior, and network scores (with auto-weight optimization if enabled) to derive the final Interaction Activity Score. Output results in CSV format, along with various heatmaps, network graphs, a user mapping file, and an optional detailed report.
-7. **Parameter Options**:  
-   Command-line parameters allow you to specify the group/chat mode, focus on a specific user, enable remote database access, set the analysis time range, and more.
+- **Visualization & Report Generation**
+  - Generates heatmaps (semantic, behavior, network), network graphs, and CSV output.
+  - Optionally generates a detailed analysis report using the DeepSeek API.
+  - Supports focusing on a specific user.
+
+- **Interactive Configuration**
+  - No command-line arguments — all options are presented as interactive prompts at startup.
+
+## Principle
+
+The core principle combines three metrics:
+
+1. **Text Embedding & Semantic Similarity**
+   Each message is converted to a vector using SentenceTransformer. Per-user average embeddings are computed and normalized; cosine similarity forms the semantic matrix. ECDF discrete mapping spreads scores across a discrete scale.
+
+2. **Behavioral Statistics**
+   Counts consecutive interactions within a 5-minute window. Log-transforms the counts and normalizes via ECDF mapping.
+
+3. **Network Topology**
+   Builds an interaction graph with NetworkX and computes degree centrality per user. The network score for a pair is the average of their centralities.
+
+4. **Fusion**
+   Three metrics are fused with configurable weights (default: semantic 0.4, behavior 0.4, network 0.2). Automatic weight optimization via scipy is also available.
+
+## Project Structure
+
+```
+QQ-Interaction-Analysis-Tool/
+├── extract_chat_data.py       # Data extraction and cleaning (SQLite / SQLCipher / PostgreSQL)
+├── train.py                   # Main program: metrics calculation, fusion, output
+├── visualization.py           # Heatmaps and network graph generation
+├── config.json                # SQLCipher encryption configuration
+├── output/                    # Output directory: CSV, charts, analysis report
+└── README.md                  # This document
+```
 
 ## Installation
 
-Ensure you are using Python 3.13.2 and install the following dependencies:
+Ensure you are using Python 3.13.2 (the official Windows installer, **not** the MSYS2 built-in Python).
+
+**Using `uv` (recommended):**
+
+> **Known issue — MSYS2 Python in PATH**: If MSYS2's Python (e.g. `C:/msys64/ucrt64/bin/python.exe`) appears before the Windows Python in your PATH, `uv pip install` will fail with `Unknown operating system: mingw_x86_64_ucrt_gnu`. Fix: specify the interpreter path explicitly.
+
+> **Known issue — no `pyproject.toml`**: `uv add` requires a `pyproject.toml` and will fail with `No pyproject.toml found` in a plain script directory. Use `uv pip install` instead.
 
 ```bash
-pip install pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn
+uv pip install --python "C:/Users/<your-username>/AppData/Local/Programs/Python/Python313/python.exe" \
+  pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
 ```
+
+**Or using pip directly:**
+
+```bash
+"C:/Users/<your-username>/AppData/Local/Programs/Python/Python313/python.exe" -m pip install \
+  pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
+```
+
+For SQLCipher encrypted database support, install MSYS2 and run `pacman -S mingw-w64-x86_64-sqlcipher` so that `C:/msys64/mingw64/bin/libsqlcipher-0.dll` is available.
 
 ## Usage
 
-### Command-Line Parameters
-
-- **--group**: Group chat number (effective in group mode).
-- **--db**: Database connection string or local database file path.
-- **--mode**: Mode: `group` for group chat, `c2c` for private chat.
-- **--id**: In group mode, should be the same as --group; in c2c mode, friend QQ number.
-- **--focus-user**: Focus analysis on a specific user (QQ number).
-- **--lite**: If set along with --focus-user, only interactions involving that user are analyzed.
-- **--font**: Font used in charts (default "Microsoft YaHei").
-- **--boost**: Enable GPU acceleration (default off).
-- **--report**: Generate a detailed analysis report via API.
-- **--auto-weight**: Auto-adjust fusion weights.
-- **--remote**: Use remote database connection; otherwise, use local database.
-
-### Examples
-
-**Group Chat Analysis (with focus):**
+Run the program and follow the interactive prompts:
 
 ```bash
-python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --focus-user 1919810 --font "Microsoft YaHei"
+uv run python train.py
 ```
 
-**Private Chat Analysis:**
+The program will ask you step by step for:
 
-```bash
-python train.py --group 0 --db nt_msg.clean.db --mode c2c --id 1919810 --font "Microsoft YaHei"
-```
+| Prompt | Description |
+|--------|-------------|
+| Database path | Local SQLite path or PostgreSQL connection string; defaults to `db_file` in `config.json` |
+| Analysis mode | 1 = group chat, 2 = private chat |
+| Group / QQ number | Group ID or friend QQ number depending on mode |
+| Focus user QQ number | Optional; leave blank to analyze all users |
+| Lite mode | If a focus user is set, keep only that user's related records |
+| Remote database | Use PostgreSQL connection string mode |
+| GPU acceleration | Requires CUDA environment |
+| Auto-adjust fusion weights | Uses scipy optimization |
+| Generate AI report | Requires `DEEPSEEK_API_KEY` environment variable |
+| Chart font | Default: Microsoft YaHei |
 
-**Lite Mode (focused only on specified user's interactions):**
-
-```bash
-python train.py --group 114514 --db nt_msg.clean.db --mode group --id 114514 --focus-user 1919810 --lite --font "Microsoft YaHei"
-```
-
-**Remote Database Connection:**
-
-```bash
-python train.py --group 114514 --db "postgresql://sr:your_password@127.0.0.1:5432/botmsg" --mode group --id 114514 --font "Microsoft YaHei" --remote
-```
-
-After starting the program, you will be prompted to input a start date and an end date (format: YYYY/MM/DD). Press Enter to leave unrestricted, or specify one or both dates to limit the analysis period.
+After data extraction, you will be prompted for an optional time range filter (format: YYYY/MM/DD).
 
 ## Database Preprocessing
 
-For SQLite databases, if the original database (nt_msg.db) contains unnecessary data in the first 1024 bytes, run:
+**Encrypted NTQQ database (`nt_msg.db`):**
+The program automatically detects `nt_msg.db` at startup and prompts you to strip the 1024-byte header to produce `nt_msg.clean_e.db`. You can also do this manually:
 
 ```bash
-python -c "open('nt_msg.clean.db','wb').write(open('nt_msg.db','rb').read()[1024:])"
+python -c "open('nt_msg.clean_e.db','wb').write(open('nt_msg.db','rb').read()[1024:])"
 ```
 
-For PostgreSQL, ensure your connection string is correct and the PostgreSQL service is running.
+**`config.json` for SQLCipher decryption:**
+
+```json
+{
+  "db_file": "nt_msg.clean_e.db",
+  "encrypted": true,
+  "sqlcipher_dll": "C:/msys64/mingw64/bin/libsqlcipher-0.dll",
+  "cipher_page_size": 4096,
+  "kdf_iter": 4000,
+  "cipher_hmac_algorithm": "HMAC_SHA1",
+  "cipher_kdf_algorithm": "PBKDF2_HMAC_SHA512",
+  "password": "your_password_here"
+}
+```
+
+Set `encrypted` to `false` (or omit it) for plaintext SQLite databases.
+
+**PostgreSQL:** Ensure your connection string is correct and the service is running.
 
 ## Output
 
 All output files are saved in the `output/` directory:
-- **interaction_scores.csv**: CSV file (GBK encoding) with unique user pair data (UserID, Nickname, BehaviorScore, SemanticScore, NetworkScore, Final Interaction Activity Score).
-- **Heatmaps**: PNG files for semantic similarity, behavior scores, and network topology scores (file names include the time range, if specified).
+
+- **interaction_scores.csv**: CSV (GBK encoding) with unique user pair data: UserID, Nickname, BehaviorScore, SemanticScore, NetworkScore, Final Interaction Activity Score.
+- **Heatmaps**: PNG files for semantic similarity, behavior scores, and network topology scores. File names include the time range if specified.
 - **interaction_network.png**: Network graph of user interactions.
-- **user_mapping.txt**: A file mapping user index, QQ number, and nickname.
-- **analysis_report.md**: (Optional) A detailed analysis report generated via API.
+- **user_mapping.txt**: Maps user index, QQ number, and nickname.
+- **analysis_report.md** (optional): Detailed analysis report generated via DeepSeek API.
 
 ## License
 
@@ -350,5 +395,3 @@ This project is licensed under the MIT License.
 - [SentenceTransformers](https://www.sbert.net/)
 - [Scipy](https://www.scipy.org/)
 - [DeepSeek API](https://api.deepseek.com/)
-
----
