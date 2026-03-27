@@ -1,4 +1,3 @@
-```gitignore
 # 数据库文件
 *.db
 *.enctemp
@@ -16,4 +15,3 @@ __pycache__/
 
 # uv/pip 虚拟环境
 .venv/
-```
