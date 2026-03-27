@@ -1,0 +1,19 @@
+```gitignore
+# 数据库文件
+*.db
+*.enctemp
+
+# 敏感配置
+config.json
+
+# 输出结果（含用户隐私）
+output/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# uv/pip 虚拟环境
+.venv/
+```
