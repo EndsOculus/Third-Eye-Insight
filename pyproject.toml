@@ -17,5 +17,10 @@ dependencies = [
     "torch>=2.6.0",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
 [tool.uv.sources]
-torch = { path = "D:/下载/torch-2.6.0+cu124-cp313-cp313-win_amd64.whl" }
+torch = { index = "pytorch-cu124" }

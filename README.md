@@ -125,13 +125,7 @@
 uv sync
 ```
 
-`pyproject.toml` 中已通过 `[tool.uv.sources]` 将 torch 指向本地 cu124 whl 文件，`uv sync` 会自动安装所有依赖（含 GPU 版 PyTorch）。
-
-> **注意**：`torch` 的本地 whl 路径在 `pyproject.toml` 中硬编码，首次运行前请确认路径正确或替换为你的实际路径：
-> ```toml
-> [tool.uv.sources]
-> torch = { path = "D:/下载/torch-2.6.0+cu124-cp313-cp313-win_amd64.whl" }
-> ```
+`pyproject.toml` 中已通过 `[tool.uv.sources]` 将 torch 指向 PyTorch 官方 cu124 索引，`uv sync` 会自动安装所有依赖（含 GPU 版 PyTorch）。
 
 > **MSYS2 Python 冲突**：若 PATH 中 MSYS2 Python 排在 Windows Python 之前，`uv` 命令会报 `Unknown operating system: mingw_x86_64_ucrt_gnu`。需显式指定：
 > ```bash
@@ -316,13 +310,7 @@ Ensure you are using Python 3.13 (the official Windows installer, **not** the MS
 uv sync
 ```
 
-`pyproject.toml` already pins torch to a local cu124 wheel via `[tool.uv.sources]`, so `uv sync` installs all dependencies including the GPU-enabled PyTorch.
-
-> **Note**: The local wheel path is hardcoded in `pyproject.toml`. Verify or update the path before running:
-> ```toml
-> [tool.uv.sources]
-> torch = { path = "D:/downloads/torch-2.6.0+cu124-cp313-cp313-win_amd64.whl" }
-> ```
+`pyproject.toml` already pins torch to the official PyTorch cu124 index via `[tool.uv.sources]`, so `uv sync` installs all dependencies including the GPU-enabled PyTorch.
 
 > **MSYS2 Python conflict**: If MSYS2's Python appears before the Windows Python in PATH, `uv` will fail with `Unknown operating system: mingw_x86_64_ucrt_gnu`. Fix by specifying the interpreter explicitly:
 > ```bash
