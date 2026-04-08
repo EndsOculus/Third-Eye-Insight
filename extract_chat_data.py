@@ -106,9 +106,8 @@ def _build_local_query(mode: str, identifier: int, encrypted: bool) -> str:
         WHERE {id_col} = {param}
           AND "40011" = 2
           AND "40012" = 1
-          AND content IS NOT NULL
-          AND TRIM(content) <> ''
-          AND "40033" NOT IN (2854196310, 10000)
+          AND "40080" IS NOT NULL
+          AND TRIM("40080") <> ''
         ORDER BY "40050"
     """
 
@@ -131,6 +130,7 @@ def _postprocess(df: pd.DataFrame, mode: str, identifier: int) -> pd.DataFrame:
             df['timestamp'] = df['timestamp'].dt.tz_localize(None)
     except Exception as e:
         print(f"[WARN] 时间戳转换失败: {e}")
+    df = df[~df['sender_id'].astype(str).isin(['2854196310', '10000'])]
     df['content'] = df['content'].apply(clean_message)
     df['sender_nickname'] = df['group_nickname'].fillna('').str.strip()
     mask = df['sender_nickname'] == ''

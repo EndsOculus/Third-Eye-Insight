@@ -16,8 +16,6 @@ import networkx as nx
 from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from scipy.optimize import minimize
-from sentence_transformers import SentenceTransformer
 from extract_chat_data import extract_chat_data
 from visualization import plot_interaction_network, plot_custom_heatmap, plot_top_pairs, filter_for_gbk
 
@@ -38,6 +36,7 @@ def discrete_mapping(matrix, L=1000):
 
 
 def optimize_weights(sem, beh, net):
+    from scipy.optimize import minimize
     def objective(w):
         final = w[0] * sem + w[1] * beh + w[2] * net
         triu_idx = np.triu_indices_from(final, k=1)
@@ -57,6 +56,7 @@ def encode_batch(texts, model, batch_size=32):
 
 
 def process_chunk(chunk_df, model_name, batch_size):
+    from sentence_transformers import SentenceTransformer
     model = SentenceTransformer(model_name)
     texts = chunk_df['content'].tolist()
     embeddings = encode_batch(texts, model, batch_size=batch_size)
@@ -65,7 +65,15 @@ def process_chunk(chunk_df, model_name, batch_size):
     return chunk_df
 
 
-def parallel_encode(chat_df, model_name, batch_size=32, num_workers=4):
+def parallel_encode(chat_df, model_name, batch_size=32, num_workers=4, device='cpu'):
+    if str(device) != 'cpu':
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer(model_name, device=str(device))
+        texts = chat_df['content'].tolist()
+        embeddings = model.encode(texts, batch_size=batch_size, show_progress_bar=False)
+        chat_df = chat_df.copy()
+        chat_df['text_embedding'] = list(embeddings)
+        return chat_df
     n = len(chat_df)
     chunk_size = math.ceil(n / num_workers)
     chunks = [chat_df.iloc[i:i+chunk_size] for i in range(0, n, chunk_size)]
@@ -152,6 +160,10 @@ def interactive_config(cipher_config: dict) -> SimpleNamespace:
     if focus_user:
         lite = ask_yn("  启用精简模式（仅保留该用户相关互动）")
 
+    # 排除用户
+    exclude_raw = ask("排除用户 QQ 号（多个用逗号分隔，回车跳过）", "")
+    exclude_users = [qq.strip() for qq in exclude_raw.split(",") if qq.strip().isdigit()] if exclude_raw else []
+
     # 可选功能
     print()
     remote     = ask_yn("使用远程数据库连接")
@@ -164,6 +176,7 @@ def interactive_config(cipher_config: dict) -> SimpleNamespace:
     return SimpleNamespace(
         db=db, mode=mode, group=group, id=id_,
         focus_user=focus_user, lite=lite,
+        exclude_users=exclude_users,
         remote=remote, boost=boost,
         auto_weight=auto_wt, report=report, font=font,
     )
@@ -194,11 +207,25 @@ if os.path.exists('nt_msg.db'):
 # 交互式参数收集
 args = interactive_config(cipher_config)
 
-device = torch.device("cuda" if args.boost and torch.cuda.is_available() else "cpu")
-print(f"使用设备：{device}")
+if args.boost:
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"使用设备：cuda ({torch.cuda.get_device_name(0)})")
+    else:
+        print(f"[WARN] 启用 GPU 加速失败，回退 CPU。")
+        print(f"  torch.__version__     = {torch.__version__}")
+        print(f"  torch.version.cuda    = {torch.version.cuda}")
+        print(f"  cuda.is_available()   = False")
+        device = torch.device("cpu")
+else:
+    device = torch.device("cpu")
+    print(f"使用设备：cpu")
 
 focus_user = str(args.focus_user) if args.focus_user else None
 identifier = args.group if args.mode == "group" else args.id
+
+_now = datetime.now()
+out_dir = os.path.join("output", _now.strftime("%Y"), _now.strftime("%m"), _now.strftime("%d"), str(identifier))
 
 # 1. 数据提取
 print("正在提取数据...")
@@ -232,6 +259,14 @@ if end_date_str:
 if chat_df.empty:
     print("[ERROR] 筛选后数据为空，请检查时间范围。")
     exit(1)
+
+if args.exclude_users:
+    chat_df = chat_df[~chat_df['sender_id'].isin(args.exclude_users)]
+    print(f"排除 {args.exclude_users} 后，剩余 {len(chat_df)} 条记录。")
+    if chat_df.empty:
+        print("[ERROR] 排除后数据为空，请检查 QQ 号是否正确。")
+        exit(1)
+
 chat_df = chat_df.sort_values('timestamp').reset_index(drop=True)
 time_range_str = ""
 if start_date_str or end_date_str:
@@ -256,7 +291,7 @@ if args.lite and focus_user:
 # 3. 文本嵌入
 print("加载预训练文本嵌入模型并进行批量计算...")
 model_name = "paraphrase-multilingual-MiniLM-L12-v2"
-chat_df = parallel_encode(chat_df, model_name, batch_size=32, num_workers=4)
+chat_df = parallel_encode(chat_df, model_name, batch_size=32, num_workers=4, device=device)
 print("文本嵌入计算完成。")
 
 # 4. 用户列表与索引
@@ -330,11 +365,11 @@ for i in range(num_users):
         network_matrix[j, i] = jac
 
 # 8. 用户名称映射与标签
-os.makedirs('output', exist_ok=True)
+os.makedirs(out_dir, exist_ok=True)
 user_name_map = {row['sender_id']: row['sender_nickname'] for _, row in chat_df.iterrows()}
 labels = [filter_for_gbk(user_name_map.get(u, str(u))) for u in users]
 
-mapping_path = "output/user_mapping.txt"
+mapping_path = f"{out_dir}/user_mapping.txt"
 with open(mapping_path, 'w', encoding='gbk', errors='replace') as f:
     f.write("索引\tQQ号\t昵称\n")
     for idx, u in enumerate(users):
@@ -342,16 +377,16 @@ with open(mapping_path, 'w', encoding='gbk', errors='replace') as f:
 print(f"用户映射文件已保存到 {mapping_path}")
 
 # 9. 可视化
-plot_custom_heatmap(semantic_matrix_mapped, labels, title="语义相似度热力图" + time_range_str, save_path=f"output/semantic_heatmap{time_range_str}.png")
-plot_custom_heatmap(behavior_norm, labels, title="行为得分热力图" + time_range_str, save_path=f"output/behavior_heatmap{time_range_str}.png")
-plot_custom_heatmap(network_matrix, labels, title="网络拓扑得分热力图" + time_range_str, save_path=f"output/network_heatmap{time_range_str}.png")
+plot_custom_heatmap(semantic_matrix_mapped, labels, title="语义相似度热力图" + time_range_str, save_path=f"{out_dir}/semantic_heatmap{time_range_str}.png")
+plot_custom_heatmap(behavior_norm, labels, title="行为得分热力图" + time_range_str, save_path=f"{out_dir}/behavior_heatmap{time_range_str}.png")
+plot_custom_heatmap(network_matrix, labels, title="网络拓扑得分热力图" + time_range_str, save_path=f"{out_dir}/network_heatmap{time_range_str}.png")
 
 edges = [(i, j, (network_matrix[i,j] + semantic_matrix_mapped[i,j] + behavior_norm[i,j]) / 3)
          for i in range(num_users) for j in range(i+1, num_users) if interaction_weights[i, j] > 0]
 if focus_user:
     focus_indices = {idx for idx, u in enumerate(users) if u == focus_user}
     edges = [(i, j, w) for i, j, w in edges if i in focus_indices or j in focus_indices]
-plot_interaction_network(edges, labels, save_path=f"output/interaction_network{time_range_str}.png")
+plot_interaction_network(edges, labels, save_path=f"{out_dir}/interaction_network{time_range_str}.png")
 
 # 10. 融合指标
 if args.auto_weight:
@@ -363,10 +398,10 @@ final_intimacy = np.maximum(w_sem * semantic_matrix_mapped + w_beh * behavior_no
 print("最终互动活跃度得分范围：", final_intimacy.min(), final_intimacy.max())
 
 plot_custom_heatmap(final_intimacy, labels, title="综合亲密度热力图" + time_range_str,
-                    save_path=f"output/intimacy_heatmap{time_range_str}.png")
+                    save_path=f"{out_dir}/intimacy_heatmap{time_range_str}.png")
 plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped, network_matrix,
                users, user_name_map,
-               save_path=f"output/top_pairs{time_range_str}.png")
+               save_path=f"{out_dir}/top_pairs{time_range_str}.png")
 
 # 11. CSV 输出
 if focus_user:
@@ -374,7 +409,7 @@ if focus_user:
                     if users[i] == focus_user or users[j] == focus_user]
 else:
     pair_indices = [(i, j) for i in range(num_users) for j in range(i+1, num_users)]
-csv_path = f"output/interaction_scores{time_range_str}.csv"
+csv_path = f"{out_dir}/interaction_scores{time_range_str}.csv"
 with open(csv_path, 'w', newline='', encoding='gbk') as f:
     writer = csv.writer(f)
     writer.writerow(["UserID1", "UserName1", "UserID2", "UserName2", "BehaviorScore", "SemanticScore", "NetworkScore", "IntimacyScore"])
@@ -448,8 +483,8 @@ if args.report:
 5. **整体评估**：群体活跃度、社群健康度的综合判断和建议
 """
     api_key = os.environ.get("DEEPSEEK_API_KEY", "")
-    generate_report_via_api(api_key, user_prompt, system_prompt=system_prompt)
+    generate_report_via_api(api_key, user_prompt, save_path=f"{out_dir}/analysis_report.md", system_prompt=system_prompt)
 else:
     print("[INFO] 未选择生成分析报告，跳过。")
 
-print(f"分析完成。结果已保存至 output/ 目录下。")
+print(f"分析完成。结果已保存至 {out_dir}/")
