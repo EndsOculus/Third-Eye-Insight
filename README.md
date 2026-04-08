@@ -20,7 +20,7 @@
   利用预训练 SentenceTransformer 模型获取文本嵌入，捕捉消息语义信息，使语义相似度计算更精准。
 
 - **多指标融合**  
-  除了文本语义相似度，还结合行为互动（连续消息互动次数）和网络拓扑指标（基于度中心性），通过离散化映射拉大微小差异，并支持自动调整融合权重。
+  群聊模式融合语义、行为、网络拓扑三项指标；私聊模式使用独立分支，融合行为特征、语义上下文、时间粘性三项指标，更贴近一对一关系分析。
 
 - **灵活聚焦与排除分析**
   可以只提取指定用户与其他用户之间的互动数据；同时支持精简模式，仅基于该用户的相关数据进行分析。支持排除指定 QQ 号（多选），从数据集中移除不需要纳入分析的用户。
@@ -38,24 +38,30 @@
 
 ## 原理解释
 
-本项目采用混合多指标模型衡量用户互动亲密度，核心原理包括：
+本项目采用混合多指标模型衡量用户互动亲密度。群聊与私聊使用不同的核心指标：
 
-1. **文本嵌入与语义相似度**
+1. **群聊：文本嵌入与语义相似度**
    - 使用预训练 SentenceTransformer 模型将每条消息转换为向量。
    - 通过 5 分钟滑动窗口识别实际交互的消息对，计算这些消息对之间的余弦相似度均值——衡量的是"两人在互相回应对方说的话"，而非全局平均向量的相似性。
    - 采用经验累计分布（ECDF）离散化映射，拉大细微差异。
 
-2. **行为互动**
+2. **群聊：行为互动**
    - 以 5 分钟为窗口，统计窗口内所有不同用户间的消息交互（非仅相邻两条），并施以指数时间衰减权重（τ=150s），越早的共现贡献越低。
    - 对 log1p(加权互动量) 归一化，反映互动密集程度。
 
-3. **网络拓扑：Jaccard 共同邻居系数**
+3. **群聊：网络拓扑：Jaccard 共同邻居系数**
    - 基于行为互动网络，计算两用户共同互动过的第三方占各自互动对象的比例。
    - 衡量"社交圈重叠程度"，共同朋友越多得分越高，与两人自身是否活跃无关。
 
-4. **指标融合与自动权重**
-   - 将语义、行为与网络三个指标按权重（默认：语义 0.4，行为 0.4，网络 0.2）融合，得到最终亲密度得分。
-   - 支持 scipy 自动优化权重，最大化得分方差以增强区分度。
+4. **私聊：行为特征 / 语义上下文 / 时间粘性**
+- **行为特征**：综合互动对称性、平均文本长度对称性、响应延迟、主动发起平衡度。
+- **语义上下文**：综合相邻异方发言的语义连贯性，以及高频词/语气词共现带来的专属语境得分。
+- **时间粘性**：综合活跃聊天日占比与 23:00-04:00 深夜聊天占比。
+
+5. **指标融合与自动权重**
+- 将语义、行为与网络三个指标按权重（默认：语义 0.4，行为 0.4，网络 0.2）融合，得到最终亲密度得分。
+- 支持 scipy 自动优化权重，最大化得分方差以增强区分度。
+- 私聊模式使用固定权重：行为特征 0.4 / 语义上下文 0.4 / 时间粘性 0.2。
 
 ---
 
@@ -76,7 +82,8 @@
      
 3. **文本嵌入与特征计算**
    - 使用批量处理和多线程加速计算文本嵌入。
-   - 通过滑动窗口计算交互消息对语义相似度、行为互动加权量、Jaccard 网络得分。
+   - 群聊模式计算交互消息对语义相似度、行为互动加权量、Jaccard 网络得分。
+   - 私聊模式计算行为特征、语义上下文、时间粘性三类指标。
 
 4. **指标融合与输出**
    - 可选自动调整权重，使最终融合得分更加离散。
@@ -94,10 +101,16 @@
 
 - **互动指标计算**
   - 文本嵌入（SentenceTransformer，多线程批量计算）
-  - 语义：交互消息对余弦相似度均值（ECDF 离散化）
-  - 行为：5 分钟滑动窗口 + 指数时间衰减
-  - 网络：Jaccard 共同邻居系数
-  - 支持自动调整指标融合权重
+  - 群聊：
+    - 语义：交互消息对余弦相似度均值（ECDF 离散化）
+    - 行为：5 分钟滑动窗口 + 指数时间衰减
+    - 网络：Jaccard 共同邻居系数
+    - 支持自动调整指标融合权重
+  - 私聊：
+    - 行为特征：互动对称性、响应延迟、主动发起平衡
+    - 语义上下文：问答连贯性 + 高频词/语气词共现
+    - 时间粘性：活跃天密度 + 深夜聊天指数
+    - 固定融合权重 0.4 / 0.4 / 0.2
 
 - **可视化与报告生成**
   - 热力图（语义/行为/网络/综合亲密度，按活跃度排序，对角遮蔽）
@@ -125,7 +138,15 @@
 uv sync
 ```
 
-`pyproject.toml` 中已通过 `[tool.uv.sources]` 将 torch 指向 PyTorch 官方 cu124 索引，`uv sync` 会自动安装所有依赖（含 GPU 版 PyTorch）。
+`pyproject.toml` 中通过 `[tool.uv.sources]` 将 torch 指向项目根目录的本地 `cu124` wheel，`uv sync` 会优先使用该文件安装 GPU 版 PyTorch。
+
+本地 wheel 文件名也记录在 `config.json` 的 `torch_whl` 字段中；若你替换了 wheel 文件名，可执行：
+
+```bash
+pwsh ./apply_torch_source_from_config.ps1
+```
+
+然后重新运行 `uv lock` / `uv sync`。
 
 > **MSYS2 Python 冲突**：若 PATH 中 MSYS2 Python 排在 Windows Python 之前，`uv` 命令会报 `Unknown operating system: mingw_x86_64_ucrt_gnu`。需显式指定：
 > ```bash
@@ -142,6 +163,18 @@ uv sync
 
 ```bash
 uv run python train.py
+```
+
+如果已存在 `.venv` 且你只想直接复用它，也可以改用：
+
+```bash
+pwsh ./run_train.ps1
+```
+
+这个入口会直接复用当前 `.venv` 运行 `train.py`，不执行 `uv` 的预同步检查。若需要先用当前目录的本地 wheel 覆盖安装 `torch`，可用：
+
+```bash
+pwsh ./run_train.ps1 -EnsureLocalTorch
 ```
 
 程序将依次询问以下配置项（括号内为默认值，直接回车接受）：
@@ -199,21 +232,27 @@ uv run python train.py
 
 ## 输出结果
 
-程序输出的文件均存储在 `output/YYYY/MM/DD/<群号或QQ号>/` 目录下，按执行日期和分析对象自动归档：
+程序输出的文件均存储在按模式区分的目录下：
+
+- 群聊：`output/YYYY/MM/DD/group/<群号>/`
+- 私聊：`output/YYYY/MM/DD/private/<QQ号>/`
 
 | 文件 | 说明 |
 |------|------|
-| `interaction_scores.csv` | 用户对得分表（QQ 号、昵称、行为/语义/网络/亲密度，GBK 编码） |
-| `semantic_heatmap.png` | 语义相似度热力图（按活跃度排序，对角遮蔽） |
-| `behavior_heatmap.png` | 行为互动热力图 |
-| `network_heatmap.png` | 网络拓扑热力图 |
-| `intimacy_heatmap.png` | 综合亲密度热力图 |
-| `top_pairs.png` | Top 20 互动对水平条形图（行为/语义/网络分量拆解） |
+| `interaction_scores.csv` | 用户对得分表。群聊包含行为/语义/网络/亲密度；私聊包含行为特征/语义上下文/时间粘性/亲密度（GBK 编码） |
+| `semantic_heatmap.png` | 群聊模式为方阵语义热力图；私聊模式为“我 vs 所有联系人”的单行语义上下文热力图 |
+| `behavior_heatmap.png` | 群聊模式为方阵行为热力图；私聊模式为单行行为特征热力图 |
+| `network_heatmap.png` | 群聊模式为网络拓扑热力图；私聊模式为单行时间粘性热力图 |
+| `intimacy_heatmap.png` | 群聊模式为方阵综合亲密度热力图；私聊模式为单行综合亲密度热力图 |
+| `top_pairs.png` | Top 20 互动对水平条形图。群聊拆解行为/语义/网络；私聊拆解行为特征/语义上下文/时间粘性 |
 | `interaction_network.png` | 互动网络图（节点大小=活跃度，边粗细=亲密度） |
 | `user_mapping.txt` | 用户索引、QQ 号、昵称对照表 |
 | `analysis_report.md` | （可选）DeepSeek AI 生成的结构化人际关系分析报告 |
 
 文件名中包含时间区间信息（如 `_2025-01-01-end`）。
+
+私聊模式下，联系人昵称会优先从私聊历史记录中回查可读名称；若数据库中长期缺失昵称，仍会回退为 QQ 号显示。
+为避免昵称串号，补全逻辑仅使用该联系人本人发言时留下的昵称，不会用“对方会话对象字段”反推名称。
 
 ---
 
@@ -241,7 +280,7 @@ uv run python train.py
 
 # Chat Interaction Affinity Analysis Tool (Third Eye Insight)
 
-This project is a deep learning and natural language processing based tool for automated analysis of user interaction intimacy in group and private chats. It extracts chat records from SQLite (plaintext or SQLCipher-encrypted) or remote PostgreSQL databases, fuses semantic, behavioral, and network-topology signals, and produces detailed visualizations plus an optional AI analysis report.
+This project is a deep learning and natural language processing based tool for automated analysis of user interaction intimacy in group and private chats. It extracts chat records from SQLite (plaintext or SQLCipher-encrypted) or remote PostgreSQL databases, uses separate scoring branches for group and private-chat analysis, and produces detailed visualizations plus an optional AI analysis report.
 
 ## Features
 
@@ -259,7 +298,8 @@ This project is a deep learning and natural language processing based tool for a
   - Text embeddings via SentenceTransformer (multi-threaded batch processing).
   - Semantic score: mean cosine similarity of actual interaction message pairs in a 5-minute sliding window.
   - Behavioral score: 5-minute sliding-window co-occurrence with exponential time decay.
-  - Network score: Jaccard common-neighbor coefficient on the interaction graph.
+  - Group chat: semantic similarity, behavioral interaction, and Jaccard network topology.
+  - Private chat: behavioral balance, semantic/context coherence, and time-stickiness.
   - Supports automatic fusion-weight optimization with scipy.
 
 - **Visualization & Report Generation**
@@ -310,7 +350,15 @@ Ensure you are using Python 3.13 (the official Windows installer, **not** the MS
 uv sync
 ```
 
-`pyproject.toml` already pins torch to the official PyTorch cu124 index via `[tool.uv.sources]`, so `uv sync` installs all dependencies including the GPU-enabled PyTorch.
+`pyproject.toml` points torch to the local `cu124` wheel in the project root via `[tool.uv.sources]`, so `uv sync` will install the GPU-enabled PyTorch from that file.
+
+The wheel filename is also stored in `config.json` as `torch_whl`. If you rename or replace the wheel, run:
+
+```bash
+pwsh ./apply_torch_source_from_config.ps1
+```
+
+and then regenerate the lockfile with `uv lock` or `uv sync`.
 
 > **MSYS2 Python conflict**: If MSYS2's Python appears before the Windows Python in PATH, `uv` will fail with `Unknown operating system: mingw_x86_64_ucrt_gnu`. Fix by specifying the interpreter explicitly:
 > ```bash
@@ -325,6 +373,18 @@ Run the program and follow the interactive prompts:
 
 ```bash
 uv run python train.py
+```
+
+If `uv run` starts re-downloading torch because the environment was previously created from a local wheel source, use:
+
+```bash
+pwsh ./run_train.ps1
+```
+
+To reinstall torch from the wheel already present in the project root before launching:
+
+```bash
+pwsh ./run_train.ps1 -EnsureLocalTorch
 ```
 
 The program will ask you step by step for:
@@ -391,7 +451,10 @@ Set `encrypted` to `false` (or omit it) for plaintext SQLite databases.
 
 ## Output
 
-All output files are saved under `output/YYYY/MM/DD/<identifier>/`, automatically archived by execution date:
+All output files are saved under mode-separated directories:
+
+- Group chat: `output/YYYY/MM/DD/group/<group-id>/`
+- Private chat: `output/YYYY/MM/DD/private/<qq-id>/`
 
 | File | Description |
 |------|-------------|

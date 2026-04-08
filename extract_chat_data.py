@@ -9,6 +9,7 @@ import sqlite3
 import json
 import os
 import ctypes
+import re
 import pandas as pd
 
 
@@ -20,19 +21,115 @@ def _load_config() -> dict:
 
 
 def clean_message(text: str) -> str:
+    if text is None:
+        return ""
+    text = str(text)
+    text = ''.join(ch for ch in text if ch >= ' ' or ch in '\n\t')
+    matches = re.findall(r'[\u4e00-\u9fffA-Za-z0-9][\u4e00-\u9fffA-Za-z0-9\s.,!?;:，。！？；：“”‘’（）()《》、…+\-_/]*', text)
+    if matches:
+        text = max(matches, key=len).strip()
     try:
         return text.encode('gbk', errors='replace').decode('gbk')
     except Exception:
         return text
 
 
-def _sqlcipher_query(db_path: str, query: str, config: dict) -> pd.DataFrame:
+def _resolve_local_c2c_peer_ids_sqlcipher(db_path: str, identifier: int, config: dict):
+    query = f"""
+        SELECT DISTINCT "40030" AS peer_id
+        FROM c2c_msg_table
+        WHERE "40033" = {identifier}
+          AND "40030" IS NOT NULL
+    """
+    df = _sqlcipher_query(db_path, query, config)
+    return [str(v) for v in df["peer_id"].dropna().tolist()] if not df.empty else []
+
+
+def _resolve_local_c2c_peer_ids_sqlite(conn, identifier: int):
+    query = """
+        SELECT DISTINCT "40030" AS peer_id
+        FROM c2c_msg_table
+        WHERE "40033" = ?
+          AND "40030" IS NOT NULL
+    """
+    df = pd.read_sql_query(query, conn, params=(identifier,))
+    return [str(v) for v in df["peer_id"].dropna().tolist()] if not df.empty else []
+
+
+def _rank_name_candidates(rows):
+    candidates = []
+    for raw_name, cnt in rows:
+        name = "" if raw_name is None else str(raw_name).strip()
+        if not name or name.lower() == "nan" or name.isdigit():
+            continue
+        candidates.append((name, int(cnt)))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[1], len(item[0])), reverse=True)
+    return candidates[0][0]
+
+
+def build_display_name_map(db_path: str, sender_ids, remote: bool = False, cipher_config: dict = None) -> dict:
+    sender_ids = [str(s) for s in sender_ids]
+    if remote or not sender_ids:
+        return {}
+    config = cipher_config if cipher_config is not None else _load_config()
+    result = {}
+    if config.get('encrypted', False):
+        id_filter = ", ".join(sender_ids)
+        query = f"""
+            SELECT matched_id, name, cnt
+            FROM (
+                SELECT "40033" AS matched_id,
+                       COALESCE(NULLIF(TRIM("40093"), ''), NULL) AS name,
+                       COUNT(*) AS cnt
+                FROM c2c_msg_table
+                WHERE "40033" IN ({id_filter})
+                GROUP BY "40033", name
+            )
+            ORDER BY matched_id, cnt DESC
+        """
+        df = _sqlcipher_query(db_path, query, config, verbose=False)
+    else:
+        conn = None
+        try:
+            conn = sqlite3.connect(db_path)
+            placeholders = ", ".join(["?"] * len(sender_ids))
+            query = f"""
+                SELECT matched_id, name, cnt
+                FROM (
+                    SELECT "40033" AS matched_id,
+                           COALESCE(NULLIF(TRIM("40093"), ''), NULL) AS name,
+                           COUNT(*) AS cnt
+                    FROM c2c_msg_table
+                    WHERE "40033" IN ({placeholders})
+                    GROUP BY "40033", name
+                )
+                ORDER BY matched_id, cnt DESC
+            """
+            df = pd.read_sql_query(query, conn, params=tuple(sender_ids))
+        except Exception:
+            return {}
+        finally:
+            if conn is not None:
+                conn.close()
+    if df.empty:
+        return {}
+    for matched_id, group in df.groupby('matched_id'):
+        best = _rank_name_candidates(group[['name', 'cnt']].itertuples(index=False, name=None))
+        if best:
+            result[str(matched_id)] = best
+    return result
+
+
+def _sqlcipher_query(db_path: str, query: str, config: dict, verbose: bool = True) -> pd.DataFrame:
     """使用 ctypes 调用 SQLCipher DLL 查询加密数据库，返回 DataFrame。"""
     dll_path = config.get('sqlcipher_dll', 'C:/msys64/mingw64/bin/libsqlcipher-0.dll')
     try:
         lib = ctypes.CDLL(dll_path)
     except OSError as e:
-        print(f"[ERROR] 无法加载 SQLCipher DLL ({dll_path}): {e}")
+        if verbose:
+            print(f"[ERROR] 无法加载 SQLCipher DLL ({dll_path}): {e}")
         return pd.DataFrame()
 
     lib.sqlite3_open.restype = ctypes.c_int
@@ -45,7 +142,8 @@ def _sqlcipher_query(db_path: str, query: str, config: dict) -> pd.DataFrame:
 
     db = ctypes.c_void_p()
     if lib.sqlite3_open(db_path.encode(), ctypes.byref(db)) != 0:
-        print("[ERROR] 无法打开加密数据库文件。")
+        if verbose:
+            print("[ERROR] 无法打开加密数据库文件。")
         return pd.DataFrame()
 
     pragma_sql = "; ".join([
@@ -58,7 +156,8 @@ def _sqlcipher_query(db_path: str, query: str, config: dict) -> pd.DataFrame:
 
     errmsg = ctypes.c_char_p()
     if lib.sqlite3_exec(db, pragma_sql.encode(), None, None, ctypes.byref(errmsg)) != 0:
-        print(f"[ERROR] 加密参数设置失败: {errmsg.value}")
+        if verbose:
+            print(f"[ERROR] 加密参数设置失败: {errmsg.value}")
         lib.sqlite3_close(db)
         return pd.DataFrame()
 
@@ -84,32 +183,68 @@ def _sqlcipher_query(db_path: str, query: str, config: dict) -> pd.DataFrame:
     lib.sqlite3_close(db)
 
     if rc != 0:
-        print(f"[ERROR] SQLCipher 查询失败 (rc={rc}): {errmsg.value}")
+        if verbose:
+            print(f"[ERROR] SQLCipher 查询失败 (rc={rc}): {errmsg.value}")
         return pd.DataFrame()
 
     return pd.DataFrame(rows, columns=col_names) if rows else pd.DataFrame(columns=col_names or [])
 
 
-def _build_local_query(mode: str, identifier: int, encrypted: bool) -> str:
-    """构建本地 SQLite 查询语句。加密模式下直接嵌入参数（整数安全）。"""
-    table = "group_msg_table" if mode == "group" else "c2c_msg_table"
-    id_col = '"40027"' if mode == "group" else '"40033"'
-    param = str(identifier) if encrypted else "?"
-    return f"""
+def _build_local_query(mode: str, identifier: int, encrypted: bool, c2c_peer_ids=None) -> tuple:
+    """构建本地 SQLite 查询语句。返回 (query, params) 元组。"""
+    if mode == "group":
+        table = "group_msg_table"
+        param = str(identifier) if encrypted else "?"
+        where_clause = f'"40027" = {param}'
+        params = () if encrypted else (identifier,)
+        query = f"""
+            SELECT
+                "40033" AS sender_id,
+                "40090" AS group_nickname,
+                "40093" AS qq_name,
+                "40080" AS content,
+                "40050" AS timestamp
+            FROM {table}
+            WHERE {where_clause}
+              AND "40011" = 2
+              AND "40012" = 1
+              AND "40080" IS NOT NULL
+              AND TRIM("40080") <> ''
+            ORDER BY "40050"
+        """
+        return query, params
+
+    if not c2c_peer_ids:
+        raise ValueError("c2c 模式缺少私聊对象列表（40030）。")
+
+    if encrypted:
+        self_param = str(identifier)
+        peer_filter = ", ".join(c2c_peer_ids)
+        params = ()
+    else:
+        self_param = "?"
+        peer_filter = ", ".join(["?"] * len(c2c_peer_ids))
+        params = tuple(c2c_peer_ids) + (identifier,)
+
+    query = f"""
         SELECT
             "40033" AS sender_id,
-            "40090" AS group_nickname,
-            "40093" AS qq_name,
-            "40080" AS content,
+            "40030" AS peer_id,
+            CASE
+                WHEN "40033" = {self_param} THEN '我'
+                ELSE COALESCE(NULLIF(TRIM("40093"), ''), CAST("40033" AS TEXT))
+            END AS qq_name,
+            CAST("40800" AS TEXT) AS content,
             "40050" AS timestamp
-        FROM {table}
-        WHERE {id_col} = {param}
+        FROM c2c_msg_table
+        WHERE "40030" IN ({peer_filter})
           AND "40011" = 2
           AND "40012" = 1
-          AND "40080" IS NOT NULL
-          AND TRIM("40080") <> ''
+          AND "40800" IS NOT NULL
+          AND length("40800") > 0
         ORDER BY "40050"
     """
+    return query, params
 
 
 def _postprocess(df: pd.DataFrame, mode: str, identifier: int) -> pd.DataFrame:
@@ -132,10 +267,36 @@ def _postprocess(df: pd.DataFrame, mode: str, identifier: int) -> pd.DataFrame:
         print(f"[WARN] 时间戳转换失败: {e}")
     df = df[~df['sender_id'].astype(str).isin(['2854196310', '10000'])]
     df['content'] = df['content'].apply(clean_message)
-    df['sender_nickname'] = df['group_nickname'].fillna('').str.strip()
-    mask = df['sender_nickname'] == ''
-    df.loc[mask, 'sender_nickname'] = df.loc[mask, 'qq_name']
-    df.drop(columns=['group_nickname', 'qq_name'], inplace=True)
+    if 'group_nickname' in df.columns:
+        df['sender_nickname'] = df['group_nickname'].fillna('').str.strip()
+        mask = df['sender_nickname'] == ''
+        df.loc[mask, 'sender_nickname'] = df.loc[mask, 'qq_name']
+        df.drop(columns=['group_nickname', 'qq_name'], inplace=True)
+    else:
+        df['sender_nickname'] = df['qq_name'].fillna('').astype(str).str.strip()
+        mask = df['sender_nickname'] == ''
+        df.loc[mask, 'sender_nickname'] = df.loc[mask, 'sender_id'].astype(str)
+        df.drop(columns=['qq_name'], inplace=True)
+    preferred_names = {}
+    for sender_id, group in df.groupby('sender_id'):
+        candidates = [
+            name for name in group['sender_nickname'].astype(str)
+            if name and name != sender_id and not name.isdigit() and name.lower() != 'nan'
+        ]
+        if candidates:
+            preferred_names[str(sender_id)] = max(candidates, key=len)
+    if preferred_names:
+        df['sender_nickname'] = df.apply(
+            lambda row: preferred_names.get(
+                str(row['sender_id']),
+                row['sender_nickname']
+            ) if (
+                not str(row['sender_nickname']).strip()
+                or str(row['sender_nickname']).isdigit()
+                or str(row['sender_nickname']).lower() == 'nan'
+            ) else row['sender_nickname'],
+            axis=1
+        )
     return df
 
 
@@ -173,12 +334,13 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
                 FROM public.nonebot_plugin_chatrecorder_messagerecord
                 WHERE type = 'message'
                   AND plain_text IS NOT NULL AND TRIM(plain_text) <> ''
-                  AND (message->>'sender_id')::bigint = %s
+                  AND ((message->>'sender_id')::bigint = %s OR (message->>'receiver_id')::bigint = %s)
                   AND (message->>'sender_id')::bigint NOT IN (2854196310, 10000)
                 ORDER BY time
             """
+        pg_params = (identifier,) if mode == "group" else (identifier, identifier)
         try:
-            df = pd.read_sql_query(query, engine, params=(identifier,))
+            df = pd.read_sql_query(query, engine, params=pg_params)
         except Exception as e:
             print(f"[ERROR] 执行 SQL 查询失败: {e}")
             return pd.DataFrame()
@@ -187,7 +349,13 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
     # 加密本地 SQLite
     config = cipher_config if cipher_config is not None else _load_config()
     if config.get('encrypted', False):
-        query = _build_local_query(mode, identifier, encrypted=True)
+        c2c_peer_ids = None
+        if mode == "c2c":
+            c2c_peer_ids = _resolve_local_c2c_peer_ids_sqlcipher(db_path, identifier, config)
+            if not c2c_peer_ids:
+                print(f"[ERROR] 未找到 QQ {identifier} 对应的本地私聊对象列表（40030）。")
+                return pd.DataFrame()
+        query, _ = _build_local_query(mode, identifier, encrypted=True, c2c_peer_ids=c2c_peer_ids)
         df = _sqlcipher_query(db_path, query, config)
         return _postprocess(df, mode, identifier)
 
@@ -197,9 +365,15 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
     except Exception as e:
         print(f"[ERROR] 无法连接数据库: {e}")
         return pd.DataFrame()
-    query = _build_local_query(mode, identifier, encrypted=False)
+    c2c_peer_ids = None
+    if mode == "c2c":
+        c2c_peer_ids = _resolve_local_c2c_peer_ids_sqlite(conn, identifier)
+        if not c2c_peer_ids:
+            print(f"[ERROR] 未找到 QQ {identifier} 对应的本地私聊对象列表（40030）。")
+            return pd.DataFrame()
+    query, params = _build_local_query(mode, identifier, encrypted=False, c2c_peer_ids=c2c_peer_ids)
     try:
-        df = pd.read_sql_query(query, conn, params=(identifier,))
+        df = pd.read_sql_query(query, conn, params=params if params else None)
     except Exception as e:
         print(f"[ERROR] 执行 SQL 查询失败: {e}")
         return pd.DataFrame()

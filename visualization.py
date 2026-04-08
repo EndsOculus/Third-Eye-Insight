@@ -2,17 +2,24 @@
 生成用户互动关系可视化图表的模块。
 """
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import seaborn as sns
 import networkx as nx
 import numpy as np
+import pandas as pd
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 
 def filter_for_gbk(text: str) -> str:
+    if text is None or (isinstance(text, float) and np.isnan(text)) or pd.isna(text):
+        text = ""
+    if not isinstance(text, str):
+        text = str(text)
     return text.encode('gbk', errors='replace').decode('gbk')
 
 
@@ -68,8 +75,41 @@ def plot_custom_heatmap(matrix, labels, title, save_path):
     print(f"[INFO] {title} 已保存到 {save_path}")
 
 
+def plot_focus_row_heatmap(matrix, labels, focus_index, title, save_path):
+    labels = process_labels(labels)
+    scores = matrix[focus_index].astype(float)
+    order = [idx for idx in np.argsort(scores)[::-1] if idx != focus_index]
+    if not order:
+        return
+    row = scores[order][np.newaxis, :]
+    xlabels = [labels[i] for i in order]
+    fig_w = max(10, len(order) * 0.35 + 2)
+    fig, ax = plt.subplots(figsize=(fig_w, 2.8))
+    sns.heatmap(
+        row,
+        ax=ax,
+        cmap='viridis',
+        xticklabels=xlabels,
+        yticklabels=[labels[focus_index]],
+        annot=(len(order) <= 30),
+        fmt='.2f',
+        annot_kws={'size': 7},
+        cbar_kws={'label': 'score', 'shrink': 0.8},
+        linewidths=0.2,
+        linecolor='#555555',
+    )
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=9)
+    ax.set_title(title + "（按得分排序）", fontsize=13, pad=10)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"[INFO] {title} 已保存到 {save_path}")
+
+
 def plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped,
-                   network_matrix, users, user_name_map, save_path, top_n=20):
+                   third_matrix, users, user_name_map, save_path, top_n=20,
+                   third_label='网络拓扑'):
     """
     水平堆叠条形图：展示互动得分最高的 top_n 对用户，
     拆分显示行为/语义/网络三项分量，一眼可见谁和谁最亲密、得分来源。
@@ -86,7 +126,7 @@ def plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped,
                     f"{name_i} & {name_j}",
                     behavior_norm[i, j],
                     semantic_matrix_mapped[i, j],
-                    network_matrix[i, j],
+                    third_matrix[i, j],
                     score,
                 ))
     if not pairs:
@@ -98,7 +138,7 @@ def plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped,
     labels  = [p[0] for p in pairs]
     beh     = np.array([p[1] for p in pairs])
     sem     = np.array([p[2] for p in pairs])
-    net     = np.array([p[3] for p in pairs])
+    third   = np.array([p[3] for p in pairs])
 
     fig_h = max(5, len(pairs) * 0.42 + 1.5)
     fig, ax = plt.subplots(figsize=(9, fig_h))
@@ -107,7 +147,7 @@ def plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped,
     bar_h = 0.55
     ax.barh(y, beh, bar_h, label='行为互动', color='#4c72b0')
     ax.barh(y, sem, bar_h, left=beh, label='语义相似', color='#55a868')
-    ax.barh(y, net, bar_h, left=beh + sem, label='网络拓扑', color='#c44e52')
+    ax.barh(y, third, bar_h, left=beh + sem, label=third_label, color='#c44e52')
 
     ax.set_yticks(y)
     ax.set_yticklabels(labels, fontsize=9)
@@ -115,7 +155,7 @@ def plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped,
     ax.set_title(f'Top {len(pairs)} 互动对（亲密度分量拆解）', fontsize=13)
     ax.legend(loc='lower right', fontsize=9)
     ax.xaxis.set_major_formatter(mticker.FormatStrFormatter('%.2f'))
-    ax.set_xlim(0, max((beh + sem + net).max() * 1.05, 0.1))
+    ax.set_xlim(0, max((beh + sem + third).max() * 1.05, 0.1))
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()

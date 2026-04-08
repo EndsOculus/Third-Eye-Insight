@@ -2,6 +2,45 @@
 
 [点击查看英文版本](#english-version)
 
+## v2.3 - 2026-04-09
+
+### 新增功能
+
+**私聊模式独立算法分支**
+- `train.py` 为私聊模式新增独立评分逻辑，不再复用群聊的网络拓扑矩阵。
+- 私聊亲密度改为三维融合：行为特征 0.4、语义上下文 0.4、时间粘性 0.2。
+- 行为特征包含互动对称性、响应延迟、主动发起平衡度。
+- 语义上下文包含相邻问答语义连贯性与高频词/语气词共现。
+- 时间粘性包含聊天日密度与深夜聊天占比。
+
+**按模式分级输出目录**
+- 输出目录进一步细分为 `output/YYYY/MM/DD/group/<群号>/` 与 `output/YYYY/MM/DD/private/<QQ号>/`。
+- 群聊与私聊结果不再混用同一层目录。
+
+### 问题修复
+
+**本地 SQLite 私聊提取修复**
+- 修正 `c2c_msg_table` 字段映射：使用真实发送者字段和私聊对象字段构建双向会话。
+- 本地私聊文本改为从 `40800` 提取可读内容，不再把 `"40080"` 误当成文本列。
+- 私聊线程计算限制在同一联系人内部，避免不同私聊对象被时间窗口串联。
+
+**私聊 AI 报告提示词修复**
+- 私聊模式下 AI 报告明确使用“私聊对象 / 我的 QQ 号 / 一对一关系分析”等表述。
+- 私聊报告指标说明改为行为特征、语义上下文、时间粘性，不再误写“群聊 / 社群圈层 / 网络拓扑”。
+
+**私聊可视化与昵称补全优化**
+- 私聊热力图改为“我 vs 所有联系人”的单行视图，不再沿用群聊方阵布局。
+- 私聊联系人昵称会优先回查 `c2c_msg_table` 中的历史可读昵称，减少纯 QQ 号展示。
+- 为避免 SQLCipher `rc=11` 干扰，私聊昵称补全不再扫描损坏的 `group_msg_table`。
+- 修正昵称补全规则：仅使用联系人本人发言记录中的昵称候选，避免 `UserID` 与 `UserName` 错配串号。
+
+### 运行验证
+
+- 已完成一次私聊全量回归运行：QQ `2232021467`，起始日期 `2025/01/01`，启用 GPU 与 AI 报告。
+- 输出路径：`output/2026/04/09/private/2232021467/`
+
+---
+
 ## v2.2 - 2026-04-08
 
 ### 新增功能
@@ -32,9 +71,13 @@
 ### 依赖管理
 
 **PyTorch CUDA 版本通过 pyproject.toml 固定**
-- 在 `pyproject.toml` 中通过 `[tool.uv.sources]` 指定本地 cu124 whl 文件。
-- `uv sync` / `uv run` 不再自动降级为 CPU 版 torch。
+- 在 `pyproject.toml` 中通过 PyTorch 官方 `cu124` 索引固定 GPU 版 torch 来源。
+- `uv sync` 会按官方 CUDA 124 wheel 安装，避免自动降级为 CPU 版 torch。
 - `requires-python` 限制为 `>=3.13,<3.14`，与 cp313 wheel 标签匹配。
+
+**本地 CUDA wheel 复用入口**
+- 新增 `use_local_torch_wheel.ps1`，可将项目根目录中的 `torch-2.6.0+cu124-cp313-cp313-win_amd64.whl` 安装到 `.venv`。
+- 新增 `run_train.ps1`，直接复用现有 `.venv` 运行 `train.py`，避免 `uv run` 因来源校验触发重复下载。
 
 ---
 
@@ -92,6 +135,39 @@
 
 <a id="english-version"></a>
 
+## v2.3 - 2026-04-09
+
+### New Features
+
+**Dedicated private-chat scoring branch**
+- `train.py` now uses a dedicated private-chat scoring path instead of reusing the group-chat network-topology matrix.
+- Private chat intimacy now uses three dimensions: behavioral metrics 0.4, semantic/context metrics 0.4, and time/stickiness 0.2.
+- Behavioral metrics include symmetry, response latency, and initiation balance.
+- Semantic/context metrics include adjacent reply coherence and lexical alignment.
+- Time/stickiness includes active-day density and late-night chat share.
+
+**Mode-separated output directories**
+- Output directories are now split into `output/YYYY/MM/DD/group/<group-id>/` and `output/YYYY/MM/DD/private/<qq-id>/`.
+- Group and private-chat runs no longer share the same output level.
+
+### Fixes
+
+**Local SQLite private-chat extraction fixed**
+- Corrected `c2c_msg_table` field mapping to reconstruct real two-way private-chat threads.
+- Local private-chat text is now extracted from `40800` instead of treating `"40080"` as a valid text column.
+- Private-chat interaction windows are restricted to the same contact thread.
+
+**Private-chat AI report prompt fixed**
+- AI report prompts now explicitly describe private-chat mode as one-to-one analysis.
+- Private-chat report wording now uses behavioral / semantic-context / time-stickiness terminology instead of group/social-network language.
+
+### Validation
+
+- Completed one end-to-end private-chat run for QQ `2232021467` from `2025/01/01` with GPU enabled and AI report generation.
+- Output path: `output/2026/04/09/private/2232021467/`
+
+---
+
 ## v2.2 - 2026-04-08
 
 ### New Features
@@ -122,9 +198,13 @@
 ### Dependency Management
 
 **PyTorch CUDA version pinned via pyproject.toml**
-- `[tool.uv.sources]` in `pyproject.toml` now points to a local cu124 wheel file.
-- `uv sync` / `uv run` no longer silently downgrades to the CPU-only torch.
+- `pyproject.toml` now pins torch to the official PyTorch `cu124` index.
+- `uv sync` installs the CUDA 12.4 build instead of silently falling back to the CPU-only torch.
 - `requires-python` restricted to `>=3.13,<3.14` to match the cp313 wheel tag.
+
+**Local CUDA wheel reuse entrypoints**
+- Added `use_local_torch_wheel.ps1` to install `torch-2.6.0+cu124-cp313-cp313-win_amd64.whl` from the project root into `.venv`.
+- Added `run_train.ps1` to launch `train.py` from the existing virtual environment without triggering `uv run` source re-sync.
 
 ---
 
