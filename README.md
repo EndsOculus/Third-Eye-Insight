@@ -22,8 +22,8 @@
 - **多指标融合**  
   除了文本语义相似度，还结合行为互动（连续消息互动次数）和网络拓扑指标（基于度中心性），通过离散化映射拉大微小差异，并支持自动调整融合权重。
 
-- **灵活聚焦分析**
-  可以只提取指定用户与其他用户之间的互动数据；同时支持精简模式，仅基于该用户的相关数据进行分析。
+- **灵活聚焦与排除分析**
+  可以只提取指定用户与其他用户之间的互动数据；同时支持精简模式，仅基于该用户的相关数据进行分析。支持排除指定 QQ 号（多选），从数据集中移除不需要纳入分析的用户。
 
 - **远程数据库支持**
   允许通过数据库连接字符串直接连接远程 PostgreSQL 数据库，满足多种部署场景的需求。
@@ -89,7 +89,8 @@
 - **数据提取与清洗**  
   - 支持群聊（group_msg_table）和私聊（c2c_msg_table）的数据提取  
   - 自动过滤系统消息（QQ 号 10000 与 2854196310）  
-  - 交互式时间范围筛选（YYYY/MM/DD 格式）  
+  - 交互式时间范围筛选（YYYY/MM/DD 格式）
+  - 支持排除指定 QQ 号（逗号分隔，可多选）
 
 - **互动指标计算**
   - 文本嵌入（SentenceTransformer，多线程批量计算）
@@ -116,33 +117,26 @@
 
 ## 安装方法
 
-确保使用 Python 3.13.2（Windows 官方安装包，非 MSYS2 内置 Python）。
+确保使用 Python 3.13（Windows 官方安装包，非 MSYS2 内置 Python）。
 
-**推荐：使用 `uv`**
+**推荐：使用 `uv sync`（项目已含 pyproject.toml）**
 
-> **注意**：若系统 PATH 中 MSYS2 的 Python（如 `C:/msys64/ucrt64/bin/python.exe`）排在 Windows Python 之前，`uv pip install` 会报错 `Unknown operating system: mingw_x86_64_ucrt_gnu`。
-> 解决方法：显式指定 Python 解释器路径：
-> ```bash
-> uv pip install --python "C:/Users/<你的用户名>/AppData/Local/Programs/Python/Python313/python.exe" \
->   pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
+```bash
+uv sync
+```
+
+`pyproject.toml` 中已通过 `[tool.uv.sources]` 将 torch 指向本地 cu124 whl 文件，`uv sync` 会自动安装所有依赖（含 GPU 版 PyTorch）。
+
+> **注意**：`torch` 的本地 whl 路径在 `pyproject.toml` 中硬编码，首次运行前请确认路径正确或替换为你的实际路径：
+> ```toml
+> [tool.uv.sources]
+> torch = { path = "D:/下载/torch-2.6.0+cu124-cp313-cp313-win_amd64.whl" }
 > ```
 
-> **注意**：`uv add` 需要项目存在 `pyproject.toml`，直接在脚本目录运行会报错 `No pyproject.toml found`。
-> 此项目为单目录脚本，请使用 `uv pip install` 而非 `uv add`。
-
-```bash
-uv pip install --python "C:/Users/<你的用户名>/AppData/Local/Programs/Python/Python313/python.exe" \
-  pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
-```
-
-**或者直接使用 pip（更简单）：**
-
-```bash
-"C:/Users/<你的用户名>/AppData/Local/Programs/Python/Python313/python.exe" -m pip install \
-  pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
-```
-
-其他版本不确定兼容性，若遇到问题请切换至 Python 3.13.2。
+> **MSYS2 Python 冲突**：若 PATH 中 MSYS2 Python 排在 Windows Python 之前，`uv` 命令会报 `Unknown operating system: mingw_x86_64_ucrt_gnu`。需显式指定：
+> ```bash
+> uv sync --python "C:/Users/<你的用户名>/AppData/Local/Programs/Python/Python313/python.exe"
+> ```
 
 如需读取 SQLCipher 加密数据库，还需安装 MSYS2 并确保 `libsqlcipher-0.dll` 存在于 `C:/msys64/mingw64/bin/`（MSYS2 中执行 `pacman -S mingw-w64-x86_64-sqlcipher`）。
 
@@ -165,8 +159,9 @@ uv run python train.py
 | 群号 / 好友 QQ 号 | 根据模式填写对应 ID |
 | 聚焦用户 QQ 号 | 可选，仅分析该用户相关互动；留空则分析所有用户 |
 | 精简模式 | 聚焦用户存在时可选，仅保留该用户参与的互动记录 |
+| 排除用户 QQ 号 | 可选，逗号分隔多个 QQ 号，这些用户将从数据集中移除 |
 | 使用远程数据库 | 连接字符串模式（PostgreSQL） |
-| 启用 GPU 加速 | 需要 CUDA 环境 |
+| 启用 GPU 加速 | 需要 CUDA 环境（torch cu124） |
 | 自动调整融合权重 | 使用 scipy 优化语义/行为/网络三权重 |
 | 生成 AI 分析报告 | 需设置环境变量 `DEEPSEEK_API_KEY` |
 | 图表中文字体 | 默认 Microsoft YaHei |
@@ -210,7 +205,7 @@ uv run python train.py
 
 ## 输出结果
 
-程序输出的文件均存储在 `output/` 目录下：
+程序输出的文件均存储在 `output/YYYY/MM/DD/<群号或QQ号>/` 目录下，按执行日期和分析对象自动归档：
 
 | 文件 | 说明 |
 |------|------|
@@ -260,6 +255,7 @@ This project is a deep learning and natural language processing based tool for a
   - Extracts chat data from SQLite databases (group_msg_table for groups, c2c_msg_table for private chats).
   - Automatically filters out system messages (QQ numbers 10000 and 2854196310).
   - Supports interactive time-range filtering (format: YYYY/MM/DD).
+  - Supports excluding specific QQ numbers (comma-separated, multi-select).
 
 - **SQLCipher Encrypted Database Support**
   - Reads NTQQ's native encrypted database directly via `config.json` — no manual conversion needed.
@@ -312,25 +308,26 @@ Third-Eye-Insight/
 
 ## Installation
 
-Ensure you are using Python 3.13.2 (the official Windows installer, **not** the MSYS2 built-in Python).
+Ensure you are using Python 3.13 (the official Windows installer, **not** the MSYS2 built-in Python).
 
-**Using `uv` (recommended):**
-
-> **Known issue — MSYS2 Python in PATH**: If MSYS2's Python (e.g. `C:/msys64/ucrt64/bin/python.exe`) appears before the Windows Python in your PATH, `uv pip install` will fail with `Unknown operating system: mingw_x86_64_ucrt_gnu`. Fix: specify the interpreter path explicitly.
-
-> **Known issue — no `pyproject.toml`**: `uv add` requires a `pyproject.toml` and will fail with `No pyproject.toml found` in a plain script directory. Use `uv pip install` instead.
+**Using `uv sync` (recommended — project includes `pyproject.toml`):**
 
 ```bash
-uv pip install --python "C:/Users/<your-username>/AppData/Local/Programs/Python/Python313/python.exe" \
-  pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
+uv sync
 ```
 
-**Or using pip directly:**
+`pyproject.toml` already pins torch to a local cu124 wheel via `[tool.uv.sources]`, so `uv sync` installs all dependencies including the GPU-enabled PyTorch.
 
-```bash
-"C:/Users/<your-username>/AppData/Local/Programs/Python/Python313/python.exe" -m pip install \
-  pandas numpy matplotlib seaborn networkx torch sentence-transformers scipy requests scikit-learn openai
-```
+> **Note**: The local wheel path is hardcoded in `pyproject.toml`. Verify or update the path before running:
+> ```toml
+> [tool.uv.sources]
+> torch = { path = "D:/downloads/torch-2.6.0+cu124-cp313-cp313-win_amd64.whl" }
+> ```
+
+> **MSYS2 Python conflict**: If MSYS2's Python appears before the Windows Python in PATH, `uv` will fail with `Unknown operating system: mingw_x86_64_ucrt_gnu`. Fix by specifying the interpreter explicitly:
+> ```bash
+> uv sync --python "C:/Users/<your-username>/AppData/Local/Programs/Python/Python313/python.exe"
+> ```
 
 For SQLCipher encrypted database support, install MSYS2 and run `pacman -S mingw-w64-x86_64-sqlcipher` so that `C:/msys64/mingw64/bin/libsqlcipher-0.dll` is available.
 
@@ -351,8 +348,9 @@ The program will ask you step by step for:
 | Group / QQ number | Group ID or friend QQ number depending on mode |
 | Focus user QQ number | Optional; leave blank to analyze all users |
 | Lite mode | If a focus user is set, keep only that user's related records |
+| Exclude user QQ numbers | Optional; comma-separated list of QQ numbers to remove from the dataset |
 | Remote database | Use PostgreSQL connection string mode |
-| GPU acceleration | Requires CUDA environment |
+| GPU acceleration | Requires CUDA environment (torch cu124) |
 | Auto-adjust fusion weights | Uses scipy optimization |
 | Generate AI report | Requires `DEEPSEEK_API_KEY` environment variable |
 | Chart font | Default: Microsoft YaHei |
@@ -405,7 +403,7 @@ Set `encrypted` to `false` (or omit it) for plaintext SQLite databases.
 
 ## Output
 
-All output files are saved in the `output/` directory:
+All output files are saved under `output/YYYY/MM/DD/<identifier>/`, automatically archived by execution date:
 
 | File | Description |
 |------|-------------|
