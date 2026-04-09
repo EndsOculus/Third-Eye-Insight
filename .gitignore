@@ -1,0 +1,39 @@
+# Whitelist mode: ignore everything by default
+*
+
+# Allow descending into directories so specific files can be unignored
+!*/
+
+# Keep this file
+!.gitignore
+
+# Project docs and metadata
+!README.md
+!CHANGELOG.md
+!LICENSE
+!pyproject.toml
+!uv.lock
+
+# Core source files (release subset)
+!train.py
+!main.py
+!app_pipeline.py
+!extract_chat_data.py
+!reporting.py
+!runtime_config.py
+!visualization.py
+
+# Utility scripts
+!run_train.ps1
+!apply_torch_source_from_config.ps1
+
+# Use template config for publishing (keep real config.json ignored)
+!config.example.json
+
+# Explicit safety ignores
+config.json
+*.db
+*.enctemp
+output/
+.venv/
+__pycache__/
