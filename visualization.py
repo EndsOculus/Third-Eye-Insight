@@ -2,6 +2,7 @@
 生成用户互动关系可视化图表的模块。
 """
 
+import logging
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -13,6 +14,8 @@ import pandas as pd
 
 plt.rcParams['font.sans-serif'] = ['Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
+
+logger = logging.getLogger(__name__)
 
 
 def filter_for_gbk(text: str) -> str:
@@ -72,7 +75,7 @@ def plot_custom_heatmap(matrix, labels, title, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[INFO] {title} 已保存到 {save_path}")
+    logger.info(f"{title} 已保存到 {save_path}")
 
 
 def plot_focus_row_heatmap(matrix, labels, focus_index, title, save_path):
@@ -104,29 +107,34 @@ def plot_focus_row_heatmap(matrix, labels, focus_index, title, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[INFO] {title} 已保存到 {save_path}")
+    logger.info(f"{title} 已保存到 {save_path}")
 
 
 def plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped,
                    third_matrix, users, user_name_map, save_path, top_n=20,
-                   third_label='网络拓扑'):
+                   third_label='网络拓扑', component_weights=(0.4, 0.4, 0.2),
+                   focus_user=None):
     """
     水平堆叠条形图：展示互动得分最高的 top_n 对用户，
-    拆分显示行为/语义/网络三项分量，一眼可见谁和谁最亲密、得分来源。
+    按最终亲密度总值排序，并拆分显示加权后的行为/语义/第三指标贡献值。
     """
+    w_sem, w_beh, w_third = component_weights
     n = len(users)
     pairs = []
+    focus_user_str = str(focus_user) if focus_user else None
     for i in range(n):
         for j in range(i + 1, n):
             score = final_intimacy[i, j]
             if score > 0:
+                if focus_user_str and users[i] != focus_user_str and users[j] != focus_user_str:
+                    continue
                 name_i = filter_for_gbk(truncate_label(user_name_map.get(users[i], str(users[i])), 10))
                 name_j = filter_for_gbk(truncate_label(user_name_map.get(users[j], str(users[j])), 10))
                 pairs.append((
                     f"{name_i} & {name_j}",
-                    behavior_norm[i, j],
-                    semantic_matrix_mapped[i, j],
-                    third_matrix[i, j],
+                    w_beh * behavior_norm[i, j],
+                    w_sem * semantic_matrix_mapped[i, j],
+                    w_third * third_matrix[i, j],
                     score,
                 ))
     if not pairs:
@@ -145,21 +153,22 @@ def plot_top_pairs(final_intimacy, behavior_norm, semantic_matrix_mapped,
 
     y = np.arange(len(pairs))
     bar_h = 0.55
-    ax.barh(y, beh, bar_h, label='行为互动', color='#4c72b0')
-    ax.barh(y, sem, bar_h, left=beh, label='语义相似', color='#55a868')
+    ax.barh(y, beh, bar_h, label='行为互动贡献', color='#4c72b0')
+    ax.barh(y, sem, bar_h, left=beh, label='语义相似贡献', color='#55a868')
     ax.barh(y, third, bar_h, left=beh + sem, label=third_label, color='#c44e52')
 
     ax.set_yticks(y)
     ax.set_yticklabels(labels, fontsize=9)
     ax.set_xlabel('得分', fontsize=10)
-    ax.set_title(f'Top {len(pairs)} 互动对（亲密度分量拆解）', fontsize=13)
+    title_prefix = f"Top {len(pairs)} 焦点用户互动对" if focus_user_str else f"Top {len(pairs)} 互动对"
+    ax.set_title(f'{title_prefix}（按亲密度总值排序）', fontsize=13)
     ax.legend(loc='lower right', fontsize=9)
     ax.xaxis.set_major_formatter(mticker.FormatStrFormatter('%.2f'))
     ax.set_xlim(0, max((beh + sem + third).max() * 1.05, 0.1))
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[INFO] Top 互动对条形图已保存到 {save_path}")
+    logger.info(f"Top 互动对条形图已保存到 {save_path}")
 
 
 def plot_interaction_network(edge_list, labels, save_path="interaction_network.png"):
@@ -212,4 +221,4 @@ def plot_interaction_network(edge_list, labels, save_path="interaction_network.p
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[INFO] 网络图已保存到 {save_path}")
+    logger.info(f"网络图已保存到 {save_path}")

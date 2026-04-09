@@ -10,7 +10,10 @@ import json
 import os
 import ctypes
 import re
+import logging
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 def _load_config() -> dict:
@@ -69,6 +72,17 @@ def _rank_name_candidates(rows):
     return candidates[0][0]
 
 
+def _format_unix_timestamp_local(ts_value) -> str:
+    try:
+        ts_numeric = pd.to_numeric(ts_value, errors='coerce')
+        if pd.isna(ts_numeric):
+            return "未知时间"
+        dt = pd.to_datetime(ts_numeric, unit='s', utc=True).tz_convert('Asia/Shanghai').tz_localize(None)
+        return dt.strftime("%Y/%m/%d %H:%M:%S")
+    except Exception:
+        return "未知时间"
+
+
 def build_display_name_map(db_path: str, sender_ids, remote: bool = False, cipher_config: dict = None) -> dict:
     sender_ids = [str(s) for s in sender_ids]
     if remote or not sender_ids:
@@ -122,15 +136,15 @@ def build_display_name_map(db_path: str, sender_ids, remote: bool = False, ciphe
     return result
 
 
-def _sqlcipher_query(db_path: str, query: str, config: dict, verbose: bool = True) -> pd.DataFrame:
-    """使用 ctypes 调用 SQLCipher DLL 查询加密数据库，返回 DataFrame。"""
+def _sqlcipher_query_status(db_path: str, query: str, config: dict, verbose: bool = True):
+    """使用 ctypes 调用 SQLCipher DLL 查询加密数据库，返回 (DataFrame, rc, errmsg)。"""
     dll_path = config.get('sqlcipher_dll', 'C:/msys64/mingw64/bin/libsqlcipher-0.dll')
     try:
         lib = ctypes.CDLL(dll_path)
     except OSError as e:
         if verbose:
-            print(f"[ERROR] 无法加载 SQLCipher DLL ({dll_path}): {e}")
-        return pd.DataFrame()
+            logger.error("无法加载 SQLCipher DLL (%s): %s", dll_path, e)
+        return pd.DataFrame(), -1, str(e)
 
     lib.sqlite3_open.restype = ctypes.c_int
     lib.sqlite3_open.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
@@ -143,23 +157,80 @@ def _sqlcipher_query(db_path: str, query: str, config: dict, verbose: bool = Tru
     db = ctypes.c_void_p()
     if lib.sqlite3_open(db_path.encode(), ctypes.byref(db)) != 0:
         if verbose:
-            print("[ERROR] 无法打开加密数据库文件。")
-        return pd.DataFrame()
+            logger.error("无法打开加密数据库文件。")
+        return pd.DataFrame(), -1, "无法打开加密数据库文件"
 
-    pragma_sql = "; ".join([
-        f"PRAGMA key = '{config.get('password', '')}'",
-        f"PRAGMA cipher_page_size = {config.get('cipher_page_size', 4096)}",
-        f"PRAGMA kdf_iter = {config.get('kdf_iter', 4000)}",
-        f"PRAGMA cipher_hmac_algorithm = {config.get('cipher_hmac_algorithm', 'HMAC_SHA1')}",
-        f"PRAGMA cipher_kdf_algorithm = {config.get('cipher_kdf_algorithm', 'PBKDF2_HMAC_SHA512')}",
-    ]) + ";"
+    env_password = os.environ.get('SQLCIPHER_PASSWORD')
+    cfg_password = config.get('password', '')
+    if cfg_password:
+        password = cfg_password
+        if env_password and env_password != cfg_password and verbose:
+            logger.warning("检测到 SQLCIPHER_PASSWORD 与 config.json 不一致，已优先使用 config.json 中的密码")
+    else:
+        password = env_password or ''
+    cfg_page_size = config.get('cipher_page_size', 4096)
+    cfg_kdf_iter = config.get('kdf_iter', 4000)
+    cfg_hmac = config.get('cipher_hmac_algorithm', 'HMAC_SHA1')
+    cfg_kdf_algo = config.get('cipher_kdf_algorithm', 'PBKDF2_HMAC_SHA512')
+
+    pragma_profiles = [
+        [
+            f"PRAGMA key = '{password}'",
+            f"PRAGMA cipher_page_size = {cfg_page_size}",
+            f"PRAGMA kdf_iter = {cfg_kdf_iter}",
+            f"PRAGMA cipher_hmac_algorithm = {cfg_hmac}",
+            f"PRAGMA cipher_kdf_algorithm = {cfg_kdf_algo}",
+        ],
+        [
+            "PRAGMA cipher_compatibility = 4",
+            f"PRAGMA key = '{password}'",
+        ],
+        [
+            "PRAGMA cipher_compatibility = 3",
+            f"PRAGMA key = '{password}'",
+        ],
+        [
+            "PRAGMA cipher_compatibility = 2",
+            f"PRAGMA key = '{password}'",
+        ],
+        [
+            "PRAGMA cipher_compatibility = 1",
+            f"PRAGMA key = '{password}'",
+        ],
+    ]
+
+    # 去重，避免配置与兼容档位重复
+    unique_profiles = []
+    seen = set()
+    for profile in pragma_profiles:
+        key = tuple(profile)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_profiles.append(profile)
 
     errmsg = ctypes.c_char_p()
-    if lib.sqlite3_exec(db, pragma_sql.encode(), None, None, ctypes.byref(errmsg)) != 0:
+    last_errmsg = ""
+    profile_ok = False
+    for idx, profile in enumerate(unique_profiles, start=1):
+        pragma_sql = "; ".join(profile) + ";"
+        if lib.sqlite3_exec(db, pragma_sql.encode(), None, None, ctypes.byref(errmsg)) != 0:
+            last_errmsg = errmsg.value.decode('utf-8', errors='replace') if errmsg.value else ""
+            continue
+        probe_sql = "SELECT count(*) FROM sqlite_master;"
+        probe_rc = lib.sqlite3_exec(db, probe_sql.encode(), None, None, ctypes.byref(errmsg))
+        if probe_rc == 0:
+            profile_ok = True
+            if verbose and idx > 1:
+                logger.warning("SQLCipher 使用兼容参数档位 #%d 解密成功", idx)
+            break
+        last_errmsg = errmsg.value.decode('utf-8', errors='replace') if errmsg.value else ""
+
+    if not profile_ok:
         if verbose:
-            print(f"[ERROR] 加密参数设置失败: {errmsg.value}")
+            logger.error("加密参数设置失败: %s", last_errmsg)
         lib.sqlite3_close(db)
-        return pd.DataFrame()
+        return pd.DataFrame(), -1, last_errmsg
 
     rows = []
     col_names = []
@@ -184,10 +255,131 @@ def _sqlcipher_query(db_path: str, query: str, config: dict, verbose: bool = Tru
 
     if rc != 0:
         if verbose:
-            print(f"[ERROR] SQLCipher 查询失败 (rc={rc}): {errmsg.value}")
+            logger.error("SQLCipher 查询失败 (rc=%d): %s", rc, errmsg.value)
+        return pd.DataFrame(), rc, errmsg.value.decode('utf-8', errors='replace') if errmsg.value else ""
+
+    return pd.DataFrame(rows, columns=col_names) if rows else pd.DataFrame(columns=col_names or []), 0, ""
+
+
+def _sqlcipher_query(db_path: str, query: str, config: dict, verbose: bool = True) -> pd.DataFrame:
+    df, _, _ = _sqlcipher_query_status(db_path, query, config, verbose=verbose)
+    return df
+
+
+def _sqlcipher_paginated_query(db_path: str, query: str, config: dict, page_size: int = 5000) -> pd.DataFrame:
+    """全量查询失败时，用分页逐批读取，遇到损坏页则停止并返回已读取数据。"""
+    dfs = []
+    offset = 0
+    while True:
+        paged_q = f"{query} LIMIT {page_size} OFFSET {offset}"
+        df = _sqlcipher_query(db_path, paged_q, config, verbose=False)
+        if df.empty:
+            break
+        dfs.append(df)
+        if len(df) < page_size:
+            break
+        offset += page_size
+    if not dfs:
+        return pd.DataFrame()
+    result = pd.concat(dfs, ignore_index=True)
+    logger.warning("数据库部分损坏，已提取 %d 条（后续数据因 rc=11 跳过）", len(result))
+    return result
+
+
+def _build_sqlcipher_group_chunk_query(identifier: int, after_row_id: int, limit: int) -> str:
+    return f"""
+        SELECT
+            "40001" AS row_id,
+            "40033" AS sender_id,
+            "40090" AS group_nickname,
+            "40093" AS qq_name,
+            CAST("40800" AS TEXT) AS content,
+            "40050" AS timestamp
+        FROM group_msg_table
+        WHERE "40027" = {identifier}
+          AND "40011" = 2
+          AND "40012" = 1
+          AND "40800" IS NOT NULL
+          AND length("40800") > 0
+          AND "40001" > {after_row_id}
+        ORDER BY "40001"
+        LIMIT {limit}
+    """
+
+
+def _sqlcipher_find_next_readable_group_chunk(db_path: str, identifier: int, config: dict, after_row_id: int,
+                                              page_size: int) -> pd.DataFrame:
+    probe_steps = [0]
+    for exp in range(0, 19):
+        base = 10 ** exp
+        probe_steps.extend([base, 2 * base, 5 * base])
+    seen_probe_ids = set()
+    for step in probe_steps:
+        probe_row_id = after_row_id + step
+        if probe_row_id in seen_probe_ids:
+            continue
+        seen_probe_ids.add(probe_row_id)
+        probe_query = _build_sqlcipher_group_chunk_query(identifier, probe_row_id, min(page_size, 1000))
+        df, rc, _ = _sqlcipher_query_status(db_path, probe_query, config, verbose=False)
+        if rc == 0 and not df.empty:
+            return df
+    return pd.DataFrame()
+
+
+def _sqlcipher_resilient_group_query(db_path: str, identifier: int, config: dict, page_size: int = 5000) -> pd.DataFrame:
+    dfs = []
+    after_row_id = 0
+    last_good_ts = None
+    skipped_ranges = []
+
+    while True:
+        chunk_query = _build_sqlcipher_group_chunk_query(identifier, after_row_id, page_size)
+        df, rc, _ = _sqlcipher_query_status(db_path, chunk_query, config, verbose=False)
+        if rc == 0:
+            if df.empty:
+                break
+            dfs.append(df)
+            after_row_id = int(df["row_id"].iloc[-1])
+            last_good_ts = df["timestamp"].iloc[-1]
+            if len(df) < page_size:
+                break
+            continue
+
+        if last_good_ts is None:
+            logger.error("SQLCipher 容错提取失败：首批数据即不可读。")
+            return pd.DataFrame()
+
+        recovery_df = _sqlcipher_find_next_readable_group_chunk(db_path, identifier, config, after_row_id, page_size)
+        if recovery_df.empty:
+            skipped_ranges.append((last_good_ts, None))
+            logger.warning(
+                "检测到数据库尾部存在不可读页，已跳过：%s 之后的部分消息不可读。",
+                _format_unix_timestamp_local(last_good_ts),
+            )
+            break
+
+        recovered_start_ts = recovery_df["timestamp"].iloc[0]
+        skipped_ranges.append((last_good_ts, recovered_start_ts))
+        logger.warning(
+            "检测到数据库坏页，已跳过不可读区段：%s - %s。",
+            _format_unix_timestamp_local(last_good_ts),
+            _format_unix_timestamp_local(recovered_start_ts),
+        )
+        dfs.append(recovery_df)
+        after_row_id = int(recovery_df["row_id"].iloc[-1])
+        last_good_ts = recovery_df["timestamp"].iloc[-1]
+
+    if not dfs:
         return pd.DataFrame()
 
-    return pd.DataFrame(rows, columns=col_names) if rows else pd.DataFrame(columns=col_names or [])
+    result = pd.concat(dfs, ignore_index=True)
+    result = result.drop_duplicates(subset=["row_id"], keep="first")
+    logger.warning(
+        "数据库存在坏页，但已尽量恢复可读数据：共提取 %d 条，跳过 %d 个不可读区段。",
+        len(result),
+        len(skipped_ranges),
+    )
+    return result
 
 
 def _build_local_query(mode: str, identifier: int, encrypted: bool, c2c_peer_ids=None) -> tuple:
@@ -202,15 +394,14 @@ def _build_local_query(mode: str, identifier: int, encrypted: bool, c2c_peer_ids
                 "40033" AS sender_id,
                 "40090" AS group_nickname,
                 "40093" AS qq_name,
-                "40080" AS content,
+                CAST("40800" AS TEXT) AS content,
                 "40050" AS timestamp
             FROM {table}
             WHERE {where_clause}
               AND "40011" = 2
               AND "40012" = 1
-              AND "40080" IS NOT NULL
-              AND TRIM("40080") <> ''
-            ORDER BY "40050"
+              AND "40800" IS NOT NULL
+              AND length("40800") > 0
         """
         return query, params
 
@@ -250,10 +441,10 @@ def _build_local_query(mode: str, identifier: int, encrypted: bool, c2c_peer_ids
 def _postprocess(df: pd.DataFrame, mode: str, identifier: int) -> pd.DataFrame:
     """时间戳转换、昵称合并、内容清洗。"""
     if df.empty:
-        print(f"[INFO] {mode} 模式下，标识符 {identifier} 未提取到有效数据。")
+        logger.info("%s 模式下，标识符 %s 未提取到有效数据。", mode, identifier)
         return df
 
-    print("原始时间戳数据：", df['timestamp'].head())
+    logger.info("原始时间戳数据：%s", df['timestamp'].head().tolist())
     df['sender_id'] = df['sender_id'].astype(str)
     try:
         df['timestamp'] = pd.to_datetime(pd.to_numeric(df['timestamp'], errors='coerce'), unit='s', errors='coerce', utc=True)
@@ -261,10 +452,10 @@ def _postprocess(df: pd.DataFrame, mode: str, identifier: int) -> pd.DataFrame:
         if not converted.isna().all():
             df['timestamp'] = converted
         else:
-            print("[WARN] 时间转换失败，保留 UTC 时间")
+            logger.warning("时间转换失败，保留 UTC 时间")
             df['timestamp'] = df['timestamp'].dt.tz_localize(None)
     except Exception as e:
-        print(f"[WARN] 时间戳转换失败: {e}")
+        logger.warning("时间戳转换失败: %s", e)
     df = df[~df['sender_id'].astype(str).isin(['2854196310', '10000'])]
     df['content'] = df['content'].apply(clean_message)
     if 'group_nickname' in df.columns:
@@ -280,7 +471,7 @@ def _postprocess(df: pd.DataFrame, mode: str, identifier: int) -> pd.DataFrame:
     preferred_names = {}
     for sender_id, group in df.groupby('sender_id'):
         candidates = [
-            name for name in group['sender_nickname'].astype(str)
+            name for name in group['sender_nickname'].fillna('').astype(str)
             if name and name != sender_id and not name.isdigit() and name.lower() != 'nan'
         ]
         if candidates:
@@ -303,7 +494,7 @@ def _postprocess(df: pd.DataFrame, mode: str, identifier: int) -> pd.DataFrame:
 def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
                       remote: bool = False, cipher_config: dict = None) -> pd.DataFrame:
     if mode not in ("group", "c2c"):
-        print(f"[ERROR] 未知的 mode: {mode}")
+        logger.error("未知的 mode: %s", mode)
         return pd.DataFrame()
 
     # 远程 PostgreSQL
@@ -312,7 +503,7 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
         try:
             engine = create_engine(db_path)
         except Exception as e:
-            print(f"[ERROR] 无法连接远程数据库: {e}")
+            logger.error("无法连接远程数据库: %s", e)
             return pd.DataFrame()
         if mode == "group":
             query = """
@@ -342,7 +533,7 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
         try:
             df = pd.read_sql_query(query, engine, params=pg_params)
         except Exception as e:
-            print(f"[ERROR] 执行 SQL 查询失败: {e}")
+            logger.error("执行 SQL 查询失败: %s", e)
             return pd.DataFrame()
         return df
 
@@ -353,29 +544,31 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
         if mode == "c2c":
             c2c_peer_ids = _resolve_local_c2c_peer_ids_sqlcipher(db_path, identifier, config)
             if not c2c_peer_ids:
-                print(f"[ERROR] 未找到 QQ {identifier} 对应的本地私聊对象列表（40030）。")
+                logger.error("未找到 QQ %s 对应的本地私聊对象列表（40030）。", identifier)
                 return pd.DataFrame()
         query, _ = _build_local_query(mode, identifier, encrypted=True, c2c_peer_ids=c2c_peer_ids)
         df = _sqlcipher_query(db_path, query, config)
+        if df.empty and mode == "group":
+            df = _sqlcipher_resilient_group_query(db_path, identifier, config)
         return _postprocess(df, mode, identifier)
 
     # 明文本地 SQLite
     try:
         conn = sqlite3.connect(db_path)
     except Exception as e:
-        print(f"[ERROR] 无法连接数据库: {e}")
+        logger.error("无法连接数据库: %s", e)
         return pd.DataFrame()
     c2c_peer_ids = None
     if mode == "c2c":
         c2c_peer_ids = _resolve_local_c2c_peer_ids_sqlite(conn, identifier)
         if not c2c_peer_ids:
-            print(f"[ERROR] 未找到 QQ {identifier} 对应的本地私聊对象列表（40030）。")
+            logger.error("未找到 QQ %s 对应的本地私聊对象列表（40030）。", identifier)
             return pd.DataFrame()
     query, params = _build_local_query(mode, identifier, encrypted=False, c2c_peer_ids=c2c_peer_ids)
     try:
         df = pd.read_sql_query(query, conn, params=params if params else None)
     except Exception as e:
-        print(f"[ERROR] 执行 SQL 查询失败: {e}")
+        logger.error("执行 SQL 查询失败: %s", e)
         return pd.DataFrame()
     finally:
         conn.close()
@@ -383,5 +576,6 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     data = extract_chat_data("nt_msg.clean.db", 98765432, mode="group")
-    print(f"群聊模式下提取到 {len(data)} 条消息记录")
+    logger.info("群聊模式下提取到 %d 条消息记录", len(data))
