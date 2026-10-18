@@ -99,6 +99,7 @@ def test_terminal_event_arriving_between_drain_and_exit(terminal):
         app.poll()
         assert app.process is None
         assert app.finished
+        assert not app.progress.winfo_manager()
         if terminal == "result":
             assert app.rows == [row]
         else:

@@ -185,3 +185,7 @@
 - Core module import/basic invocation checks passed for `analysis_types.py`, `embedding_cache.py`, `metrics.py`, `reporting.py`, and `runtime_config.py`.
 - Group regression completed: group `8*3`, time range `2026/03/01`-`2026/03/31`, GPU + AI report enabled, outputs generated under `output/2026/04/09/group/8*3/`.
 - Focus consistency check passed: for focus user `2*7`, exported CSV contains only focus-related pairs (non-focus/non-focus pairs = 0).
+
+### Desktop visual refinement
+
+Flat white cards on a neutral backdrop, restrained body text, one purple primary action, clear section and statistics hierarchy, softer inputs, striped tables and explicit disabled states. Completed progress bars disappear. Both 1120x780 and 900x700 layouts were checked using real app-window captures with synthetic data.
