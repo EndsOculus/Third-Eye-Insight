@@ -106,3 +106,20 @@ def test_terminal_event_arriving_between_drain_and_exit(terminal):
     finally:
         app.after_cancel(app.poll_id)
         root.destroy()
+
+@pytest.mark.parametrize("size", ["1120x780", "900x700"])
+def test_layout_keeps_table_and_pagination_inside_window(size):
+    root = tk.Tk()
+    app = Desktop(root)
+    root.geometry(size)
+    root.update()
+    try:
+        assert app.table.winfo_height() >= 120
+        for widget in (app.table, app.prev_button, app.next_button):
+            assert widget.winfo_rooty() >= root.winfo_rooty()
+            assert widget.winfo_rooty()+widget.winfo_height() <= root.winfo_rooty()+root.winfo_height()
+            assert widget.winfo_rootx()+widget.winfo_width() <= root.winfo_rootx()+root.winfo_width()
+        assert app.values["exclude"].get() == ""
+    finally:
+        app.after_cancel(app.poll_id)
+        root.destroy()

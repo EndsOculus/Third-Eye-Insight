@@ -13,7 +13,7 @@ PAGE_SIZE = 100
 
 class Desktop(ttk.Frame):
     def __init__(self, root):
-        super().__init__(root, padding=24)
+        super().__init__(root, padding=14)
         self.root = root
         root.title("Third Eye Insight · 恋之瞳")
         root.geometry("1120x780")
@@ -31,19 +31,21 @@ class Desktop(ttk.Frame):
         style = ttk.Style(root)
         style.theme_use("clam")
         style.configure(".", font=("Microsoft YaHei UI", 10), background="#f3f5fa", foreground="#202a44")
-        style.configure("TEntry", fieldbackground="white", padding=7)
-        style.configure("TButton", padding=(14, 8))
+        style.configure("TEntry", fieldbackground="white", padding=4)
+        style.configure("TButton", padding=(12, 6))
         style.configure("Accent.TButton", background="#5557d9", foreground="white")
         style.map("Accent.TButton", background=[("active", "#4345b5"), ("disabled", "#b6b9ce")])
-        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 23, "bold"))
+        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 18, "bold"))
         style.configure("Sub.TLabel", foreground="#64708a")
-        style.configure("Treeview", rowheight=30, fieldbackground="white", background="white")
+        style.configure("Horizontal.TProgressbar", background="#6667df", troughcolor="#e0e4ef")
+        style.configure("Treeview", rowheight=28, fieldbackground="white", background="white")
         style.configure("Treeview.Heading", font=("Microsoft YaHei UI", 10, "bold"), padding=8)
         self.columnconfigure(0, weight=1)
         self.rowconfigure(5, weight=1)
         ttk.Label(self, text="恋之瞳  /  Third Eye Insight", style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(self, text="本地分析 · 只读数据 · 匿名关系视图", style="Sub.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 18))
-        form = ttk.LabelFrame(self, text="  01  数据与筛选  ", padding=14)
+        self.context = tk.StringVar(value="本地分析 · 只读数据 · 匿名关系视图")
+        ttk.Label(self, textvariable=self.context, style="Sub.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 8))
+        form = ttk.LabelFrame(self, text="  01  数据与筛选  ", padding=8)
         form.grid(row=2, column=0, sticky="ew")
         form.columnconfigure(1, weight=1)
         form.columnconfigure(3, weight=1)
@@ -53,20 +55,22 @@ class Desktop(ttk.Frame):
         ttk.Button(form, text="选择文件", command=self.browse).grid(row=0, column=4)
         self.mode = tk.StringVar(value="group")
         modes = ttk.Frame(form)
-        modes.grid(row=1, column=0, columnspan=5, sticky="w", pady=10)
+        modes.grid(row=1, column=0, columnspan=5, sticky="w", pady=4)
         ttk.Radiobutton(modes, text="群聊", variable=self.mode, value="group").pack(side="left")
-        ttk.Radiobutton(modes, text="私聊（填我的 QQ）", variable=self.mode, value="c2c").pack(side="left", padx=20)
-        for index, (key, title) in enumerate((("identifier", "群号 / 我的 QQ"), ("focus", "聚焦账号（可选）"), ("start", "开始 YYYY-MM-DD"), ("end", "结束 YYYY-MM-DD"), ("exclude", "排除账号（逗号分隔）"))):
+        ttk.Radiobutton(modes, text="私聊（填我的 QQ）", variable=self.mode, value="c2c").pack(side="left", padx=12)
+        for index, (key, title) in enumerate((("identifier", "群号 / 我的 QQ"), ("focus", "聚焦账号（可选）"), ("start", "开始 YYYY-MM-DD"), ("end", "结束 YYYY-MM-DD"))):
             r, c = 2 + index // 2, (index % 2) * 2
-            ttk.Label(form, text=title).grid(row=r, column=c, sticky="w", pady=4)
-            ttk.Entry(form, textvariable=self.values[key]).grid(row=r, column=c+1, sticky="ew", padx=10, pady=4)
+            ttk.Label(form, text=title).grid(row=r, column=c, sticky="w", pady=2)
+            ttk.Entry(form, textvariable=self.values[key]).grid(row=r, column=c+1, sticky="ew", padx=10, pady=2)
         self.flags = {k: tk.BooleanVar() for k in ("encrypted", "gpu", "auto_weight")}
-        options = ttk.Frame(form)
-        options.grid(row=5, column=0, columnspan=5, sticky="w", pady=(8, 0))
-        for key, label in (("encrypted", "SQLCipher（使用本地 config.json）"), ("gpu", "GPU"), ("auto_weight", "自动权重")):
-            ttk.Checkbutton(options, text=label, variable=self.flags[key]).pack(side="left", padx=(0, 16))
+        options = ttk.Frame(modes)
+        options.pack(side="left", padx=(12, 0))
+        for key, label in (("encrypted", "SQLCipher（本地配置）"), ("gpu", "GPU"), ("auto_weight", "自动权重")):
+            ttk.Checkbutton(options, text=label, variable=self.flags[key]).pack(side="left", padx=(0, 12))
+        ttk.Label(modes, text="排除（逗号）").pack(side="left", padx=(2, 4))
+        ttk.Entry(modes, textvariable=self.values["exclude"], width=16).pack(side="left")
         controls = ttk.Frame(self)
-        controls.grid(row=3, column=0, sticky="ew", pady=12)
+        controls.grid(row=3, column=0, sticky="ew", pady=8)
         self.run_button = ttk.Button(controls, text="开始分析", style="Accent.TButton", command=self.start)
         self.run_button.pack(side="left")
         self.demo_button = ttk.Button(controls, text="体验合成演示", command=lambda: self.start(demo=True))
@@ -76,22 +80,22 @@ class Desktop(ttk.Frame):
         self.progress = ttk.Progressbar(controls, maximum=100, length=180)
         self.progress.pack(side="right", padx=8)
         self.status = tk.StringVar(value="准备就绪。先体验演示，或选择只读数据库。")
-        ttk.Label(self, textvariable=self.status, wraplength=1000).grid(row=4, column=0, sticky="ew", pady=(0, 10))
-        panel = ttk.LabelFrame(self, text="  02  关系洞察  ", padding=12)
+        ttk.Label(self, textvariable=self.status, wraplength=1000).grid(row=4, column=0, sticky="ew", pady=(0, 6))
+        panel = ttk.LabelFrame(self, text="  02  关系洞察  ", padding=8)
         panel.grid(row=5, column=0, sticky="nsew")
         panel.columnconfigure(0, weight=1)
-        panel.rowconfigure(2, weight=1)
+        panel.rowconfigure(2, weight=1, minsize=120)
         self.summary = tk.StringVar(value="暂无结果 · 分析后显示消息数、成员数与阶段耗时")
         ttk.Label(panel, textvariable=self.summary, style="Sub.TLabel").grid(row=0, column=0, sticky="w")
-        self.chart = tk.Canvas(panel, height=100, background="white", highlightthickness=0)
-        self.chart.grid(row=1, column=0, sticky="ew", pady=10)
+        self.chart = tk.Canvas(panel, height=78, background="white", highlightthickness=0)
+        self.chart.grid(row=1, column=0, sticky="ew", pady=8)
         self.chart.bind("<Configure>", lambda _: self.draw_chart())
         table_frame = ttk.Frame(panel)
         table_frame.grid(row=2, column=0, sticky="nsew")
         table_frame.columnconfigure(0, weight=1)
         table_frame.rowconfigure(0, weight=1)
         columns = ("a", "b", "score", "semantic", "behavior", "network")
-        self.table = ttk.Treeview(table_frame, columns=columns, show="headings", height=5)
+        self.table = ttk.Treeview(table_frame, columns=columns, show="headings", height=4)
         for col, label in zip(columns, ("成员 A", "成员 B", "综合得分 ↓", "语义 / 上下文", "行为", "网络 / 时间")):
             self.table.heading(col, text=label)
             self.table.column(col, width=130, minwidth=85, anchor="center")
@@ -143,6 +147,7 @@ class Desktop(ttk.Frame):
             return
         self.finished = False
         self.cancelling = False
+        self.context.set("演示数据 · 随机向量，仅供体验 · 无真实聊天" if demo else "本地分析 · 只读数据 · 匿名关系视图")
         self.rows = []
         self.filter_rows()
         self.summary.set("分析进行中…")
@@ -248,7 +253,7 @@ class Desktop(ttk.Frame):
         maximum = max(max(r[2] for r in top), 0.001)
         width = max(100, self.chart.winfo_width()-240)
         for i, row in enumerate(top):
-            y = 18 + 30*i
+            y = 15 + 24*i
             self.chart.create_text(12, y, anchor="w", text=f"{row[0]} — {row[1]}", fill="#202a44")
             self.chart.create_rectangle(190, y-7, 190 + width*row[2]/maximum, y+7, fill="#6667df", outline="")
             self.chart.create_text(200+width*row[2]/maximum, y, anchor="w", text=f"{row[2]:.2f}", fill="#64708a")

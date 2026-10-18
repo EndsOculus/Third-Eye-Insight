@@ -1,3 +1,9 @@
+## Visual acceptance fixes — 2026-10-19
+
+- Real Tk screenshots revealed table/footer clipping; compact the form and chart, reserve result table height and keep search/pagination visible at 900x700.
+- Add persistent synthetic-data identification and a visible progress-bar accent.
+- Add default/compact geometry regression tests; screenshots remain private Library deliverables.
+
 ## Independent review fixes — 2026-10-19
 
 - Fix worker-exit race: drain final results/errors again after confirmed process exit, before closing its queue. Cancellation still skips potentially interrupted queue writes.

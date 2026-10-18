@@ -25,7 +25,7 @@ Window loops now use itertuples instead of allocating Series per message; nickna
 ## Limitations
 
 - No real chat database or authentication material read for testing. SQLCipher read-only flag reviewed, but no encrypted private database tested.
-- Native-window screenshot/visual inspection was unavailable. Real Tk controls/event behavior tested; pixel layout, high-DPI and accessibility need visual review on target display.
+- Initial delivery lacked screenshots; the visual follow-up below now covers the current Windows display. Other DPI scales and accessibility remain unverified.
 - Remote PostgreSQL, third-party AI, GPU and private exports not exercised; CLI capabilities retained.
 - Dense traffic in one time window can still be costly. Cancellation terminates only this app's worker. Atomic cache writes protect the prior cache but cancellation may leave an ignored temporary cache file.
 
@@ -38,3 +38,9 @@ The parent task provided an independent review finding two private-chat defects.
 The independent review also raised worker-exit event loss and artificial semantic scores. Both were reproduced before fixes: deterministic queue/process stubs lost result and error events, and three messages spaced 601 seconds apart produced nonzero semantic scores; repeated tied inputs changed ranking. New tests cover both terminal-event races, all-zero no-interaction scores, repeatability and observed-zero-cosine versus unobserved pairs. Normal worker exit now drains final events after join. Semantic scaling uses observed masks and deterministic midranks. CLI signatures remain compatible; scores for missing/tied observations intentionally change. The performance comparison above belongs to the initial revision, before this semantic correction; it is not an equivalence claim for the corrected scoring rule.
 
 Private-chat real-model check also passed: 12 synthetic alternating messages, actual SQLite extraction with no embedding column, full offline CPU encoding, one relationship result and unchanged source SHA-256 (5.121 s in one observation). Temporary test data was removed normally.
+
+## Real-window visual follow-up
+
+Captured the actual Tk Desktop instance through Pillow ImageGrab.grab(window=Tk frame HWND), not HTML/design mockups or a full-screen crop. Used only the built-in synthetic demo; selected-file/account fields stayed blank. Captures were inspected at 1120x780 and 900x700 for chart labels, text contrast, form controls, result table, search/pagination, empty state, validation, progress and cancellation. Screenshot files are private deliverables, not repository assets.
+
+The first capture exposed a collapsed table at default size and clipped pagination at compact size. Reduced form whitespace, moved exclusion input into the options row, reserved table height, compacted chart spacing and colored the progress bar. Added a persistent synthetic-data label. Final screenshots show table and footer fully within both window sizes, with no overlapping chart text or controls. Added geometry regressions for both sizes. Current full local test count: 34; published suite: 33. Test windows close after capture. DPI/accessibility coverage remains limited to this display/session.
