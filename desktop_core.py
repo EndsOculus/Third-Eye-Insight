@@ -105,8 +105,8 @@ def analyze(request, progress=lambda value, text: None):
     if request.focus and request.focus not in users:
         raise InputError("聚焦账号不在筛选后的数据中。")
     progress(30, "准备本地语义向量…")
-    # Private-chat metrics are lexical; do not load a model unnecessarily.
-    if request.mode == "group" and not request.demo:
+    # Both modes use embeddings: private replies combine cosine similarity and lexical overlap.
+    if not request.demo:
         from embedding_cache import attach_text_embeddings
         frame = attach_text_embeddings(frame, device="cuda" if request.gpu else "cpu", num_workers=1)
     progress(55, "计算互动、语义与关系指标…")

@@ -22,7 +22,7 @@ Windows、Python 3.13，在项目目录执行 `uv sync --locked`。双击 **Star
 
 支持原项目 NTQQ SQLite 架构（group_msg_table、c2c_msg_table），不是任意聊天导出格式。数据库只读打开，不自动裁剪文件头、解密生成文件或删除原库；被占用或损坏的数据请使用用户自行取得的完整副本，不强制关闭客户端。
 
-群聊需要可信的本地 paraphrase-multilingual-MiniLM-L12-v2 缓存。存在项目 .cache/huggingface 时桌面设置该目录为默认 HF_HOME；不自动联网下载。私聊不需要语义模型。旧 pickle 缓存不会加载或删除，新缓存使用原子替换 JSON，仍属于私人派生数据，不上传。
+群聊和私聊都需要可信的本地 paraphrase-multilingual-MiniLM-L12-v2 缓存。存在项目 .cache/huggingface 时桌面设置该目录为默认 HF_HOME；不自动联网下载。私聊的上下文指标也使用相邻回复向量相似度；仅合成演示不需要本地模型。旧 pickle 缓存不会加载或删除，新缓存使用原子替换 JSON，仍属于私人派生数据，不上传。
 
 桌面保守上限为提取 50,000 条消息、300 名成员，超限拒绝分析，不显示截断结果。日期在提取后筛选，因此大库需先提供较小的只读副本。匿名编号仅在本次分析内有效。
 
@@ -35,3 +35,5 @@ CLI 保留 PostgreSQL、图片/CSV、聚焦精简模式和可选 AI 报告。远
 `uv sync --locked --group dev` 后运行 `.venv\Scripts\python.exe -m pytest -q`。GUI 测试需要可用 Windows/Tk 会话，使用隐藏窗口和合成数据。
 
 详见 [VALIDATION.md](VALIDATION.md) 和 [SECURITY.md](SECURITY.md)。本机已备份升级前源码和 Git bundle，未纳入仓库。基线为 2d44d85；需要回滚时在新分支恢复基线源码，保留私人配置/数据库，不用 hard reset 覆盖未提交工作。旧依赖存在已知告警，恢复前应评估。
+
+语义归一化只对实际观察到窗口内互动的成员对进行确定性中位排名；无观察的成员对保持零分，相同相似度共享排名。仅一对可观察时使用中性分位 0.5（离散化后约 0.5005）。因此与旧版随机抖动排名相比，零信息/并列样本的分数会有意改变；CLI 和桌面采用同一修正规则。

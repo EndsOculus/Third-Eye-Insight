@@ -12,29 +12,37 @@ from analysis_types import MetricArtifacts
 logger = logging.getLogger(__name__)
 
 
-def discrete_mapping(matrix, L=1000):
-    triu_indices = np.triu_indices_from(matrix, k=1)
-    values = matrix[triu_indices].astype(float)
-    if values.size == 0:
-        return np.copy(matrix)
-    finite_mask = np.isfinite(values)
-    if not finite_mask.any():
-        return np.nan_to_num(np.copy(matrix), nan=0.0, posinf=0.0, neginf=0.0)
-    if not finite_mask.all():
-        values = values[finite_mask]
-        triu_indices = (triu_indices[0][finite_mask], triu_indices[1][finite_mask])
-    jitter = np.random.uniform(-1e-6, 1e-6, size=values.shape)
-    values_jitter = values + jitter
-    sorted_vals = np.sort(values_jitter)
-    if sorted_vals.size == 0:
-        return np.nan_to_num(np.copy(matrix), nan=0.0, posinf=0.0, neginf=0.0)
-    mapped_continuous = np.interp(values_jitter, sorted_vals, np.linspace(0, 1, len(sorted_vals)))
-    discrete_values = np.round(mapped_continuous * (L - 1)) / (L - 1)
-    mapped_matrix = np.nan_to_num(np.copy(matrix), nan=0.0, posinf=0.0, neginf=0.0)
-    for idx, (i, j) in enumerate(zip(triu_indices[0], triu_indices[1])):
-        mapped_matrix[i, j] = discrete_values[idx]
-        mapped_matrix[j, i] = discrete_values[idx]
-    return mapped_matrix
+def discrete_mapping(matrix, L=1000, observed=None):
+    """Deterministic midrank scaling of finite, observed off-diagonal pairs.
+
+    Missing observations stay zero. Equal observations share a rank; an isolated
+    observation has neutral percentile 0.5. Existing callers may omit the mask.
+    """
+    if L < 2:
+        raise ValueError("L must be at least 2")
+    matrix = np.asarray(matrix, dtype=float)
+    indices = np.triu_indices_from(matrix, k=1)
+    values = matrix[indices]
+    valid = np.isfinite(values)
+    if observed is not None:
+        observed = np.asarray(observed, dtype=bool)
+        if observed.shape != matrix.shape:
+            raise ValueError("Observation mask must match matrix shape")
+        valid &= observed[indices]
+    values = values[valid]
+    mapped = np.zeros_like(matrix, dtype=float)
+    if not values.size:
+        return mapped
+    sorted_values = np.sort(values)
+    left = np.searchsorted(sorted_values, values, side="left")
+    right = np.searchsorted(sorted_values, values, side="right")
+    percentiles = ((left + right - 1) / 2 / (len(values) - 1)
+                   if len(values) > 1 else np.full_like(values, 0.5))
+    scores = np.round(percentiles * (L - 1)) / (L - 1)
+    i, j = indices[0][valid], indices[1][valid]
+    mapped[i, j] = scores
+    mapped[j, i] = scores
+    return mapped
 
 
 def optimize_weights(sem, beh, net):
@@ -184,7 +192,7 @@ def compute_group_semantic_matrix(chat_df, user_to_index, window_size, L):
                 sem_counts[prev_sender_idx, sender_idx] += 1
         win.append((timestamp, sender_idx, normalized_embedding))
     semantic_matrix = np.divide(sem_scores, sem_counts, out=np.zeros_like(sem_scores), where=sem_counts > 0)
-    return discrete_mapping(semantic_matrix, L=L)
+    return discrete_mapping(semantic_matrix, L=L, observed=sem_counts > 0)
 
 
 def compute_group_behavior_matrix(chat_df, user_to_index, window_size, tau):

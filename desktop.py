@@ -161,7 +161,7 @@ class Desktop(ttk.Frame):
             if self.process.is_alive():
                 self.process.terminate()
 
-    def poll(self):
+    def drain_events(self):
         if self.events is not None and not self.cancelling:
             for _ in range(20):
                 try:
@@ -184,8 +184,14 @@ class Desktop(ttk.Frame):
                     self.status.set(payload)
                     self.summary.set("没有生成结果 · 可调整输入后重试")
                     logging.getLogger("desktop").info("analysis_failed")
+
+    def poll(self):
+        self.drain_events()
         if self.process is not None and not self.process.is_alive():
             self.process.join(timeout=0)
+            # Normal worker exit joins its queue feeder; drain final events before closing.
+            # Cancellation can interrupt a queue write, so drain_events skips it.
+            self.drain_events()
             self.process.close()
             self.process = None
             self.events.close()

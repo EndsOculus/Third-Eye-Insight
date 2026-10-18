@@ -408,7 +408,7 @@ def _build_local_query(mode: str, identifier: int, encrypted: bool, c2c_peer_ids
     else:
         self_param = "?"
         peer_filter = ", ".join(["?"] * len(c2c_peer_ids))
-        params = tuple(c2c_peer_ids) + (identifier,)
+        params = (identifier,) + tuple(c2c_peer_ids)
 
     query = f"""
         SELECT

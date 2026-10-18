@@ -1,3 +1,12 @@
+## Independent review fixes — 2026-10-19
+
+- Fix worker-exit race: drain final results/errors again after confirmed process exit, before closing its queue. Cancellation still skips potentially interrupted queue writes.
+- Remove random semantic rank jitter. Only observed finite pairs are ranked; missing interactions remain zero and ties share a deterministic midrank. This corrects scores in both desktop and CLI without changing the CLI interface.
+
+- Fix private-chat SQL placeholder binding: the self identifier now precedes peer identifiers, matching CASE then IN in the query.
+- Initialize offline embeddings for desktop private analysis as well as group analysis; preserve the existing cosine-plus-lexical metric rather than silently changing its meaning.
+- Reproduce failures using actual synthetic SQLite extraction; add single/multiple-peer extraction and desktop encoding regression tests without prefilled embeddings.
+
 ## Desktop modernization — 2026-10-19
 
 - Add Tk desktop, pythonw launch, synthetic demo, validation, stage progress, cancellation, anonymous charts, search and pagination.

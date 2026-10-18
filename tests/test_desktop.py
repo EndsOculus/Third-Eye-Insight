@@ -71,3 +71,38 @@ def test_real_gui_lifecycle_and_pagination():
             root.destroy()
         except tk.TclError:
             pass
+
+@pytest.mark.parametrize("terminal", ["result", "error"])
+def test_terminal_event_arriving_between_drain_and_exit(terminal):
+    import queue
+    root = tk.Tk()
+    root.withdraw()
+    app = Desktop(root)
+    app.after_cancel(app.poll_id)
+    class Events(queue.Queue):
+        def close(self):
+            pass
+    events = Events()
+    row = ("成员 001", "成员 002", .5, .5, .5, .5)
+    payload = {"pairs": [row], "rows": 2, "users": 2, "seconds": .1, "demo": True} if terminal == "result" else "synthetic terminal error"
+    class Process:
+        def is_alive(self):
+            # Deterministically model the worker publishing after an empty drain.
+            events.put((terminal, payload))
+            return False
+        def join(self, **kwargs):
+            pass
+        def close(self):
+            pass
+    app.events, app.process = events, Process()
+    try:
+        app.poll()
+        assert app.process is None
+        assert app.finished
+        if terminal == "result":
+            assert app.rows == [row]
+        else:
+            assert app.status.get() == payload
+    finally:
+        app.after_cancel(app.poll_id)
+        root.destroy()
