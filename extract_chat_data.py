@@ -6,6 +6,7 @@ extract_chat_data.py
 """
 
 import sqlite3
+from pathlib import Path
 import json
 import os
 import ctypes
@@ -90,7 +91,7 @@ def build_display_name_map(db_path: str, sender_ids, remote: bool = False, ciphe
     config = cipher_config if cipher_config is not None else _load_config()
     result = {}
     if config.get('encrypted', False):
-        id_filter = ", ".join(sender_ids)
+        id_filter = ", ".join(str(int(v)) for v in sender_ids)
         query = f"""
             SELECT matched_id, name, cnt
             FROM (
@@ -107,7 +108,7 @@ def build_display_name_map(db_path: str, sender_ids, remote: bool = False, ciphe
     else:
         conn = None
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
             placeholders = ", ".join(["?"] * len(sender_ids))
             query = f"""
                 SELECT matched_id, name, cnt
@@ -146,16 +147,19 @@ def _sqlcipher_query_status(db_path: str, query: str, config: dict, verbose: boo
             logger.error("无法加载 SQLCipher DLL (%s): %s", dll_path, e)
         return pd.DataFrame(), -1, str(e)
 
-    lib.sqlite3_open.restype = ctypes.c_int
-    lib.sqlite3_open.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
+    lib.sqlite3_open_v2.restype = ctypes.c_int
+    lib.sqlite3_open_v2.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_int, ctypes.c_char_p]
     lib.sqlite3_exec.restype = ctypes.c_int
     lib.sqlite3_exec.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
                                   ctypes.c_void_p, ctypes.c_void_p,
                                   ctypes.POINTER(ctypes.c_char_p)]
     lib.sqlite3_close.restype = ctypes.c_int
+    lib.sqlite3_close.argtypes = [ctypes.c_void_p]
 
     db = ctypes.c_void_p()
-    if lib.sqlite3_open(db_path.encode(), ctypes.byref(db)) != 0:
+    if lib.sqlite3_open_v2(db_path.encode("utf-8"), ctypes.byref(db), 1, None) != 0:
+        if db.value:
+            lib.sqlite3_close(db)
         if verbose:
             logger.error("无法打开加密数据库文件。")
         return pd.DataFrame(), -1, "无法打开加密数据库文件"
@@ -168,10 +172,19 @@ def _sqlcipher_query_status(db_path: str, query: str, config: dict, verbose: boo
             logger.warning("检测到 SQLCIPHER_PASSWORD 与 config.json 不一致，已优先使用 config.json 中的密码")
     else:
         password = env_password or ''
-    cfg_page_size = config.get('cipher_page_size', 4096)
-    cfg_kdf_iter = config.get('kdf_iter', 4000)
+    password = str(password).replace("'", "''")
+    try:
+        cfg_page_size = int(config.get('cipher_page_size', 4096))
+        cfg_kdf_iter = int(config.get('kdf_iter', 4000))
+    except (TypeError, ValueError):
+        lib.sqlite3_close(db)
+        raise ValueError('Invalid cipher parameters') from None
     cfg_hmac = config.get('cipher_hmac_algorithm', 'HMAC_SHA1')
     cfg_kdf_algo = config.get('cipher_kdf_algorithm', 'PBKDF2_HMAC_SHA512')
+
+    if cfg_hmac not in {'HMAC_SHA1', 'HMAC_SHA256', 'HMAC_SHA512'} or cfg_kdf_algo not in {'PBKDF2_HMAC_SHA1', 'PBKDF2_HMAC_SHA256', 'PBKDF2_HMAC_SHA512'}:
+        lib.sqlite3_close(db)
+        raise ValueError('Unsupported cipher algorithm')
 
     pragma_profiles = [
         [
@@ -366,7 +379,7 @@ def _build_local_query(mode: str, identifier: int, encrypted: bool, c2c_peer_ids
     """构建本地 SQLite 查询语句。返回 (query, params) 元组。"""
     if mode == "group":
         table = "group_msg_table"
-        param = str(identifier) if encrypted else "?"
+        param = str(int(identifier)) if encrypted else "?"
         where_clause = f'"40027" = {param}'
         params = () if encrypted else (identifier,)
         query = f"""
@@ -389,8 +402,8 @@ def _build_local_query(mode: str, identifier: int, encrypted: bool, c2c_peer_ids
         raise ValueError("c2c 模式缺少私聊对象列表（40030）。")
 
     if encrypted:
-        self_param = str(identifier)
-        peer_filter = ", ".join(c2c_peer_ids)
+        self_param = str(int(identifier))
+        peer_filter = ", ".join(str(int(v)) for v in c2c_peer_ids)
         params = ()
     else:
         self_param = "?"
@@ -457,22 +470,16 @@ def _postprocess(df: pd.DataFrame, mode: str, identifier: int) -> pd.DataFrame:
         if candidates:
             preferred_names[str(sender_id)] = max(candidates, key=len)
     if preferred_names:
-        df['sender_nickname'] = df.apply(
-            lambda row: preferred_names.get(
-                str(row['sender_id']),
-                row['sender_nickname']
-            ) if (
-                not str(row['sender_nickname']).strip()
-                or str(row['sender_nickname']).isdigit()
-                or str(row['sender_nickname']).lower() == 'nan'
-            ) else row['sender_nickname'],
-            axis=1
-        )
+        names = df['sender_nickname'].astype(str)
+        missing = names.str.strip().eq('') | names.str.isdigit() | names.str.lower().eq('nan')
+        replacements = df['sender_id'].map(preferred_names)
+        mask = missing & replacements.notna()
+        df.loc[mask, 'sender_nickname'] = replacements[mask]
     return df
 
 
 def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
-                      remote: bool = False, cipher_config: dict = None) -> pd.DataFrame:
+                      remote: bool = False, cipher_config: dict = None, max_rows: int | None = None) -> pd.DataFrame:
     if mode not in ("group", "c2c"):
         logger.error("未知的 mode: %s", mode)
         return pd.DataFrame()
@@ -527,32 +534,41 @@ def extract_chat_data(db_path: str, identifier: int, mode: str = "group",
                 logger.error("未找到 QQ %s 对应的本地私聊对象列表（40030）。", identifier)
                 return pd.DataFrame()
         query, _ = _build_local_query(mode, identifier, encrypted=True, c2c_peer_ids=c2c_peer_ids)
+        if max_rows is not None:
+            query = query.rstrip().rstrip(";") + f" LIMIT {int(max_rows) + 1}"
         df = _sqlcipher_query(db_path, query, config)
-        if df.empty and mode == "group":
+        if df.empty and mode == "group" and max_rows is None:
             df = _sqlcipher_resilient_group_query(db_path, identifier, config)
-        return _postprocess(df, mode, identifier)
+        truncated = max_rows is not None and len(df) > max_rows
+        result = _postprocess(df, mode, identifier)
+        result.attrs["truncated"] = truncated
+        return result
 
     # 明文本地 SQLite
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
     except Exception as e:
         logger.error("无法连接数据库: %s", e)
         return pd.DataFrame()
-    c2c_peer_ids = None
-    if mode == "c2c":
-        c2c_peer_ids = _resolve_local_c2c_peer_ids_sqlite(conn, identifier)
-        if not c2c_peer_ids:
-            logger.error("未找到 QQ %s 对应的本地私聊对象列表（40030）。", identifier)
-            return pd.DataFrame()
-    query, params = _build_local_query(mode, identifier, encrypted=False, c2c_peer_ids=c2c_peer_ids)
     try:
+        c2c_peer_ids = None
+        if mode == "c2c":
+            c2c_peer_ids = _resolve_local_c2c_peer_ids_sqlite(conn, identifier)
+            if not c2c_peer_ids:
+                return pd.DataFrame()
+        query, params = _build_local_query(mode, identifier, encrypted=False, c2c_peer_ids=c2c_peer_ids)
+        if max_rows is not None:
+            query = query.rstrip().rstrip(";") + f" LIMIT {int(max_rows) + 1}"
         df = pd.read_sql_query(query, conn, params=params if params else None)
-    except Exception as e:
-        logger.error("执行 SQL 查询失败: %s", e)
+    except Exception:
+        logger.error("Local database query failed; verify schema and input.")
         return pd.DataFrame()
     finally:
         conn.close()
-    return _postprocess(df, mode, identifier)
+    truncated = max_rows is not None and len(df) > max_rows
+    result = _postprocess(df, mode, identifier)
+    result.attrs["truncated"] = truncated
+    return result
 
 
 if __name__ == "__main__":

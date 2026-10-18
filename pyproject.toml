@@ -13,9 +13,14 @@ dependencies = [
     "scikit-learn>=1.8.0",
     "scipy>=1.17.1",
     "seaborn>=0.13.2",
-    "sentence-transformers>=5.3.0",
-    "torch>=2.6.0",
+    "sentence-transformers>=5.6.0,<6",
+    "torch>=2.8.0,<2.9",
+    "anyio>=4.14.2,<4.15",
+    "pillow>=12.3.0,<13",
+    "transformers>=5.10.0,<5.11",
+    "setuptools>=83.0.0,<84",
+    "idna>=3.15",
 ]
 
-[tool.uv.sources]
-torch = { path = "torch-2.6.0+cu124-cp313-cp313-win_amd64.whl" }
+[dependency-groups]
+dev = ["pytest>=9", "ruff>=0.14"]

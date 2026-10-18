@@ -37,3 +37,30 @@ config.json
 output/
 .venv/
 __pycache__/
+
+# Desktop and complete core release
+!analysis_types.py
+!embedding_cache.py
+!metrics.py
+!desktop.py
+!desktop_core.py
+!Start Insight.vbs
+!debug_desktop.ps1
+!tests/test_desktop.py
+!tests/test_core_safety.py
+!tests/test_entrypoint.py
+!tests/test_extract.py
+!tests/test_visualization.py
+!VALIDATION.md
+!SECURITY.md
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log
+*.zip
+*.bundle
+.cache/
+.pytest_cache/
+.ruff_cache/
+!/.github/workflows/tests.yml

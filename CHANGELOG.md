@@ -1,3 +1,12 @@
+## Desktop modernization — 2026-10-19
+
+- Add Tk desktop, pythonw launch, synthetic demo, validation, stage progress, cancellation, anonymous charts, search and pagination.
+- Preserve CLI; desktop does not invoke external AI or export private data.
+- Fix writable database handles, startup file deletion offer, pickle cache loading, truncated-result detection and exception cleanup.
+- Batch CPU inference in one model; tuple window iteration and vectorized nickname fallback. Synthetic performance details in VALIDATION.md.
+- Publish missing core modules/tests; replace local wheel lock and update bounded security dependencies.
+- Encrypted private data, GPU, external services and native screenshots not validated. See VALIDATION.md and SECURITY.md.
+
 # Release Notes
 
 [中文](#chinese-version) | [English](#english-version)

@@ -111,18 +111,8 @@ def interactive_config(cipher_config: dict) -> SimpleNamespace:
 
 
 def maybe_strip_nt_msg_header():
-    if not os.path.exists("nt_msg.db"):
-        return
-    if ask_yn("发现 nt_msg.db，是否剥离 1024 字节文件头生成 nt_msg.clean_e.db"):
-        with open("nt_msg.db", "rb") as fin:
-            fin.seek(1024)
-            stripped = fin.read()
-        with open("nt_msg.clean_e.db", "wb") as fout:
-            fout.write(stripped)
-        logger.info("nt_msg.clean_e.db 已生成。")
-        if ask_yn("是否删除 nt_msg.db"):
-            os.remove("nt_msg.db")
-            logger.info("nt_msg.db 已删除。")
+    """Legacy hook: preprocessing is deliberately never automatic."""
+    return None
 
 
 def resolve_device(use_gpu):
