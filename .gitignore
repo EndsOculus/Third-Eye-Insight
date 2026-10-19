@@ -102,3 +102,9 @@ __pycache__/
 
 !database_access.py
 !tests/test_database_access.py
+
+!streaming_store.py
+!contact_names.py
+!tests/test_streaming.py
+!tests/test_contact_names.py
+contacts.local.json

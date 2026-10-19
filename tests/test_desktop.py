@@ -224,3 +224,65 @@ def test_cleanup_failure_recovers_ui_and_retries():
         assert app.cleanup_scratch() and not app.pending_scratch
     finally:
         app.after_cancel(app.poll_id);root.destroy()
+
+
+def test_private_identity_search_sort_details_and_privacy(tmp_path):
+    import sqlite3
+    from tests.interaction_fixtures import make_db,msg
+    path=tmp_path/'private identity.db'
+    make_db(path,[msg(900,0,'a',peer='2'),msg(2,10,'b',peer='2'),msg(900,20,'c',peer='10'),msg(10,30,'d',peer='10')],source_format='nt',mode='c2c')
+    with sqlite3.connect(path) as db:
+        db.execute('CREATE TABLE contacts(qq TEXT,remark TEXT,nickname TEXT)')
+        db.execute("INSERT INTO contacts VALUES ('2','Synthetic Friend','Nick')")
+    root=tk.Tk();root.withdraw();app=Desktop(root)
+    try:
+        app.mode.set('c2c');app.values['db'].set(str(path));app.values['identifier'].set('900');app.start()
+        pump(root,lambda:app.process is None)
+        assert 'b' not in tuple(app.table['displaycolumns'])
+        shown=[app.table.item(i,'values')[0] for i in app.table.get_children()]
+        assert 'Synthetic Friend\uff082\uff09' in shown and '10' in shown
+        assert not any('900' in value for value in shown)
+        assert '\u6635\u79f0\u4e0d\u53ef\u7528' in app.status.get()
+        app.search.set('Synthetic Friend');pump(root,lambda:len(app.filtered)==1)
+        app.show_details();root.update()
+        def walk(w):
+            for c in w.winfo_children():yield c;yield from walk(c)
+        texts=[w.get('1.0','end') for w in walk(root) if isinstance(w,tk.Text)]
+        assert any('Synthetic Friend' in text for text in texts)
+        app.sort_rows('a');assert len(app.filtered)==1
+        app.privacy.set(True);app.identity_changed();root.update()
+        assert not app.detail_windows
+        assert all('Synthetic Friend' not in str(app.table.item(i,'values')) for i in app.table.get_children())
+        assert all(w.cget('show')=='*' for w in app.identity_inputs)
+        app.search.set('Synthetic Friend');pump(root,lambda:len(app.filtered)==0)
+        app.privacy.set(False);app.identity_changed()
+        assert len(app.filtered)==2
+        app.result['mode']='group';app.filter_rows()
+        assert 'b' in tuple(app.table['displaycolumns'])
+    finally:
+        app.after_cancel(app.poll_id);root.destroy()
+
+
+def test_streaming_gui_cancel_and_close_large_source(tmp_path):
+    import hashlib,sqlite3
+    from pathlib import Path
+    from tests.interaction_fixtures import make_db
+    path=tmp_path/'large streaming.db';make_db(path,[],source_format='nt',mode='c2c')
+    with sqlite3.connect(path) as db:
+        db.executemany('INSERT INTO c2c_msg_table VALUES (?,?,?,?,?,?)',((str(i),str(1+i%2),'2',99,1767225600+i,'synthetic') for i in range(100001)))
+    before=hashlib.sha256(path.read_bytes()).digest()
+    root=tk.Tk();root.withdraw();app=Desktop(root)
+    try:
+        app.mode.set('c2c');app.values['db'].set(str(path));app.values['identifier'].set('1')
+        app.start();scratch=Path(app.scratch.name);pid=app.process.pid
+        app.start();assert app.process.pid==pid
+        pump(root,lambda:float(app.progress['value'])>=28)
+        app.cancel();pump(root,lambda:app.process is None)
+        assert not scratch.exists()
+        app.start();scratch=Path(app.scratch.name)
+        pump(root,lambda:float(app.progress['value'])>=28)
+        app.close();pump(root,lambda:app.process is None)
+        assert not scratch.exists() and hashlib.sha256(path.read_bytes()).digest()==before
+    finally:
+        try:root.destroy()
+        except tk.TclError:pass

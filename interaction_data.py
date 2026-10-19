@@ -54,7 +54,7 @@ def decode_payload(raw, allow_structure=False):
         return result
 
 
-def extract_interactions(db_path, identifier, mode='group', start='', end='', max_rows=50000, cipher_config=None, source_format='nt', *, force_encrypted=False, scratch_dir=None, cancelled=lambda: False, progress=lambda n,t: None):
+def extract_interactions(db_path, identifier, mode='group', start='', end='', max_rows=None, cipher_config=None, source_format='nt', *, force_encrypted=False, scratch_dir=None, cancelled=lambda: False, progress=lambda n,t: None, sink=None):
     """Extract all message types in the selected period; no silent truncation.
 
     Numeric NT columns are read conservatively. 40001 is used as an optional
@@ -106,26 +106,32 @@ def extract_interactions(db_path, identifier, mode='group', start='', end='', ma
         sendercol = f'CASE WHEN length(CAST({sendercol} AS BLOB)) <= 32 THEN {sendercol} ELSE NULL END'
         size = f'length(CAST({contentcol} AS BLOB))'
         metasize = f'length(CAST({metacol} AS BLOB))'
+        # Existing legacy adapter defines 40033 -> 40093 as sender -> QQ nickname.
+        # Read only when the explicitly local GUI requests identities, never from message bodies.
+        namecol = 'NULL'
+        if sink is not None and getattr(sink, 'load_names', False) and source_format == 'nt' and '40093' in columns:
+            namecol = 'CASE WHEN typeof("40093")=\'text\' AND length(CAST("40093" AS BLOB))<=320 THEN "40093" ELSE NULL END'
         # hex preserves arbitrary payload bytes through SQLite/SQLCipher adapters.
         sql = (f'SELECT CAST({sendercol} AS TEXT) AS sender_id, {peer} AS peer_id, '
                f'{msgid} AS message_id, CASE WHEN length(CAST({tscol} AS BLOB)) <= 32 THEN {tscol} ELSE NULL END AS timestamp, '
-               f'typeof({contentcol}) AS payload_type, {size} AS payload_length, '
+               f'{namecol} AS local_nickname, typeof({contentcol}) AS payload_type, {size} AS payload_length, '
                f'CASE WHEN {size} <= {MAX_PAYLOAD} THEN hex({contentcol}) ELSE NULL END AS payload_hex, '
                f'CASE WHEN {metasize} <= {MAX_PAYLOAD} THEN {metacol} ELSE NULL END AS metadata '
-               f'FROM {table} WHERE {where} ORDER BY {tscol}, {msgid} LIMIT {int(max_rows)+1}')
-        estimate = query(f'SELECT count(*) AS n, sum(size) AS size '
-                         f'FROM (SELECT (CASE WHEN {size} <= {MAX_PAYLOAD} THEN {size} ELSE 0 END) + '
-                         f'COALESCE(CASE WHEN {metasize} <= {MAX_PAYLOAD} THEN {metasize} ELSE 0 END,0) AS size '
-                         f'FROM {table} WHERE {where} LIMIT {int(max_rows)+1})', tuple(params))[0]
-        if int(estimate['n']) > max_rows:
-            raise ValueError('Selected period exceeds 50,000 records; narrow the dates. No partial result was computed.')
-        if int(estimate['size'] or 0) > MAX_TOTAL_PAYLOAD:
-            raise ValueError('Selected payload exceeds 32 MiB; narrow the dates.')
-        rows = query(sql, tuple(params))
-        if len(rows) > max_rows:
-            raise ValueError('Selected period exceeds 50,000 records; narrow the dates. No partial result was computed.')
-        result, invalid_time, invalid_sender = [], 0, 0
-        for index, row in enumerate(rows):
+               f'FROM {table} WHERE {where}')
+        total = int(query(f'SELECT count(*) AS n FROM {table} WHERE {where}', tuple(params))[0]['n'])
+        if max_rows is not None and total > max_rows:
+            raise ValueError('Explicit caller record budget exceeded; no partial result was computed.')
+        result = sink if sink is not None else []
+        invalid_time = invalid_sender = native_rows = quote_rows = selected = payload_bytes = 0
+        for index, row in enumerate(conn.iter_query(sql, tuple(params))):
+            selected += 1
+            if index % 1000 == 0:
+                if cancelled(): raise DatabaseError('cancelled')
+                progress(28 + int(16 * selected / max(total, 1)), f'Reading selected records: {selected:,} / {total:,}')
+            if sink is None:
+                payload_bytes += len(row['payload_hex'] or '') // 2 + len(row['metadata'] or '')
+                if payload_bytes > MAX_TOTAL_PAYLOAD:
+                    raise ValueError('In-memory API payload exceeds 32 MiB; use streaming analysis.')
             try:
                 ts = datetime.fromtimestamp(float(row['timestamp']), SHANGHAI).replace(tzinfo=None)
             except (ValueError, TypeError, OverflowError, OSError):
@@ -156,12 +162,18 @@ def extract_interactions(db_path, identifier, mode='group', start='', end='', ma
                     payload['structure'] = 'invalid'
             if row['payload_length'] is not None and int(row['payload_length']) > MAX_PAYLOAD:
                 payload['structure'] = 'oversize'
+            native_rows += payload.get('native_text_status') == 'parsed'
+            quote_rows += bool(payload.get('native_quote_present', False))
             result.append(dict(sender=sender, peer=peer_id, timestamp=ts,
                                thread=('group:' + identifier) if mode == 'group' else ('c2c:' + peer_id),
                                message_id=str(row['message_id']) if row['message_id'] is not None else None,
-                               order=index, **payload))
-        return result, dict(selected_rows=len(rows), invalid_time=invalid_time, invalid_sender=invalid_sender,
+                               order=index, local_nickname=row.get('local_nickname'), **payload))
+        if sink is not None and getattr(sink, 'load_names', False):
+            from contact_names import contact_names
+            sink.local_names = contact_names(conn, encrypted, sink.users)
+            for qq, (_, name, conflict) in sink.native_names.items():
+                if name and not conflict: sink.local_names.setdefault(qq, name)
+        return result, dict(selected_rows=selected, invalid_time=invalid_time, invalid_sender=invalid_sender,
                             start=start or None, end=end or None, timezone='Asia/Shanghai', truncated=False,
                             source=source_format, **access,
-                            native_text_rows=sum(r.get('native_text_status')=='parsed' for r in result),
-                            native_quote_rows=sum(r.get('native_quote_present',False) for r in result))
+                            native_text_rows=native_rows, native_quote_rows=quote_rows)

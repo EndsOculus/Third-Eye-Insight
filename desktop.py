@@ -35,6 +35,11 @@ class Desktop(ttk.Frame):
         self.result = {}
         self.filtered = []
         self.page = 0
+        self.sort_key = "responses"
+        self.sort_reverse = True
+        self.detail_windows = []
+        self.identity_inputs = []
+        self.privacy = tk.BooleanVar(value=False)
         self.search_timer = None
         style = ttk.Style(root)
         style.theme_use("clam")
@@ -102,6 +107,7 @@ class Desktop(ttk.Frame):
         options = ttk.Frame(modes, style="Card.TFrame")
         options.pack(side="left", padx=(12, 0))
         ttk.Checkbutton(options,text='SQLCipher',variable=self.flags['encrypted']).pack(side='left',padx=(0,8))
+        ttk.Checkbutton(options,text='匿名 / 隐私',variable=self.privacy,command=self.identity_changed).pack(side='left',padx=(0,8))
         self.assist_mode=tk.StringVar(value='辅助关闭')
         ttk.Combobox(options,textvariable=self.assist_mode,values=('辅助关闭','向量候选','生成实验'),state='readonly',width=8).pack(side='left',padx=(0,8))
         ttk.Combobox(options, textvariable=self.source_format, values=("原生 NT", "结构导入"), state="readonly", width=8).pack(side="left", padx=(0,8))
@@ -139,7 +145,7 @@ class Desktop(ttk.Frame):
         for col, label, width in zip(columns,
                 ("成员 A", "成员 B", "回应轮次 ↓", "双向会话", "发言 A / B", "共同活跃日", "单向程度", "证据状态"),
                 (85, 85, 90, 80, 100, 90, 85, 145)):
-            self.table.heading(col, text=label)
+            self.table.heading(col, text=label, command=lambda key=col:self.sort_rows(key))
             self.table.column(col, width=width, minwidth=65, anchor="center")
         self.table.bind("<<TreeviewSelect>>", lambda _: self.draw_chart())
         self.table.bind("<Double-1>", lambda _: self.show_details())
@@ -171,6 +177,57 @@ class Desktop(ttk.Frame):
         if path:
             self.generation_config=path
             self.status.set('已选择生成资源配置。生成模式为实验性；仅本地运行，不自动下载。')
+
+    def is_private(self):
+        return self.result.get('mode', self.mode.get()) == 'c2c'
+
+    def display_name(self, label):
+        if self.is_private() and label == self.result.get('_self_label'):
+            return "\u6211"
+        if self.privacy.get():
+            return label
+        identity = self.result.get('_local_identity', {}).get(label)
+        if not identity:
+            return label
+        return (identity['name'] + "\uff08" + identity['qq'] + "\uff09") if identity.get('name') else identity['qq']
+
+    def other_label(self, row):
+        owner = self.result.get('_self_label')
+        if row['a'] == owner: return row['b']
+        if row['b'] == owner: return row['a']
+        return None
+
+    def identity_changed(self):
+        for win in self.detail_windows:
+            try: win.destroy()
+            except tk.TclError: pass
+        self.detail_windows = []
+        def walk(parent):
+            for child in parent.winfo_children():
+                yield child
+                yield from walk(child)
+        self.identity_inputs = [w for w in walk(self) if isinstance(w,ttk.Entry) and str(w.cget('textvariable')) in {str(self.values[k]) for k in ('db','identifier','focus','exclude')}]
+        for widget in self.identity_inputs:
+            widget.configure(show='*' if self.privacy.get() else '')
+        self.search.set('')
+        self.filter_rows()
+
+    def sort_rows(self, key):
+        self.sort_reverse = not self.sort_reverse if self.sort_key == key else key not in ('a','b')
+        self.sort_key = key
+        self.filter_rows()
+
+    def displayed_values(self, row):
+        values = list(self.row_values(row))
+        if self.is_private():
+            peer = self.other_label(row)
+            values[0] = self.display_name(peer) if peer else "\u672c\u4eba\u8d26\u53f7\u672a\u5339\u914d"
+            values[1] = ''
+            own_a = row['a'] == self.result.get('_self_label')
+            values[4] = str(row['source_messages_a' if own_a else 'source_messages_b']) + ' / ' + str(row['source_messages_b' if own_a else 'source_messages_a'])
+        else:
+            values[0], values[1] = self.display_name(row['a']), self.display_name(row['b'])
+        return tuple(values)
 
     def browse(self):
         path = filedialog.askopenfilename(title="选择数据库（只读）", filetypes=[("数据库", "*.db *.sqlite *.sqlite3"), ("所有文件", "*")])
@@ -222,6 +279,7 @@ class Desktop(ttk.Frame):
         self.cancelling = False
         self.context.set("合成演示 · 已标注回复 / 未解析内容 · 无真实聊天" if demo else "互动 v2 · 只读数据 · 不推断情感或亲密度")
         self.rows = []
+        self.result = {}
         self.filter_rows()
         self.summary.set("分析进行中…")
         self.status_label.configure(style="Status.TLabel")
@@ -285,6 +343,9 @@ class Desktop(ttk.Frame):
                         ai_note={'completed':f" 生成实验：候选 {assist.get('candidate_count',0)} / 弃权 {assist.get('abstention_count',0)}。",'limit_exceeded':' 生成实验最多12条，请缩小选区。','model_unavailable':' 生成资源不可用；未下载。','time_limit':' 生成达到时间上限，未返回部分结果。'}.get(assist.get('status'),' 生成已停止。')
                     issues = cov.get('unresolved_references', 0) + cov.get('conflicting_ids', 0) + source.get('invalid_time', 0) + source.get('invalid_sender', 0)
                     self.status.set("完成 · 真实数据测量效度尚未验证。双击记录或按 Enter 查看统计口径。" + (" 存在未解析/冲突/无效记录，见证据详情。" if issues else "") + ai_note)
+                    missing = sum(not value.get("name") for key,value in payload.get("_local_identity", {}).items() if key != payload.get("_self_label"))
+                    if missing and not self.privacy.get():
+                        self.status.set(self.status.get() + " " + str(missing) + " 位昵称不可用，当前仅显示 QQ；可在同项目提供已核实的本地联系人映射。")
                     self.status_label.configure(style="Success.TLabel")
                     self.progress["value"] = 100
                     self.progress.pack_forget()
@@ -337,7 +398,17 @@ class Desktop(ttk.Frame):
     def filter_rows(self):
         self.search_timer = None
         needle = self.search.get().strip().casefold()
-        self.filtered = [r for r in self.rows if not needle or needle in (r["a"]+" "+r["b"]).casefold()]
+        def searchable(row):
+            labels = [self.other_label(row)] if self.is_private() else [row['a'], row['b']]
+            return ' '.join(self.display_name(label) for label in labels if label).casefold()
+        self.filtered = [r for r in self.rows if not needle or needle in searchable(r)]
+        index = {'a':0,'b':1,'responses':2,'sessions':3,'messages':4,'days':5,'oneway':6,'evidence':7}[self.sort_key]
+        numeric = {'responses':'response_rounds','sessions':'bidirectional_sessions','days':'common_active_days','oneway':'one_way_fraction'}
+        def sort_value(row):
+            if self.sort_key in numeric: return row.get(numeric[self.sort_key]) or 0
+            if self.sort_key == 'messages': return row['source_messages_a'] + row['source_messages_b']
+            return str(self.displayed_values(row)[index]).casefold()
+        self.filtered.sort(key=sort_value, reverse=self.sort_reverse)
         self.page = 0
         self.render_page()
         self.draw_chart()
@@ -348,11 +419,16 @@ class Desktop(ttk.Frame):
         self.render_page()
 
     def render_page(self):
+        columns = tuple(self.table["columns"])
+        self.table.configure(displaycolumns=tuple(c for c in columns if c != "b") if self.is_private() else columns)
+        self.table.heading("a",text='对方' if self.is_private() else '成员 A')
+        self.table.heading("messages",text='我 / 对方发言' if self.is_private() else '发言 A / B')
+        self.table.column("a",width=210 if self.is_private() else 140)
         children = self.table.get_children()
         if children:
             self.table.delete(*children)
         for index, row in enumerate(self.filtered[self.page*PAGE_SIZE:(self.page+1)*PAGE_SIZE]):
-            self.table.insert("", "end", iid=str(self.page*PAGE_SIZE+index), values=self.row_values(row), tags=("stripe",) if index % 2 else ())
+            self.table.insert("", "end", iid=str(self.page*PAGE_SIZE+index), values=self.displayed_values(row), tags=("stripe",) if index % 2 else ())
         pages = (len(self.filtered)+PAGE_SIZE-1)//PAGE_SIZE
         self.page_text.set(f"{self.page+1 if pages else 0} / {pages}")
         self.prev_button.configure(state="normal" if self.page else "disabled")
@@ -383,7 +459,7 @@ class Desktop(ttk.Frame):
         if not row:
             self.chart.create_text(12, 21, anchor="w", text="没有匹配记录 · 无数据不等于没有互动", fill="#667085")
             return
-        self.chart.create_text(12, 11, anchor="w", text=f"{row['a']} ↔ {row['b']}   ·   {EVIDENCE[row['evidence']]}   ·   共同圈层 / 时间共现不计作直接回应", fill="#475467")
+        self.chart.create_text(12, 11, anchor="w", text=f"{self.display_name(row['a'])} ↔ {self.display_name(row['b'])}   ·   {EVIDENCE[row['evidence']]}   ·   共同圈层 / 时间共现不计作直接回应", fill="#475467")
         self.chart.create_text(12, 32, anchor="w", text="发言为选区内去重条数；群聊不代表彼此回应。私聊回应为会话内换人。单向程度按定向轮次计算。", fill="#667085")
 
     def show_details(self):
@@ -391,6 +467,7 @@ class Desktop(ttk.Frame):
         if not row:
             return
         win = tk.Toplevel(self.root)
+        self.detail_windows.append(win)
         win.title('互动证据 · v2')
         win.geometry('740x580')
         body = ttk.Frame(win)
@@ -412,7 +489,7 @@ class Desktop(ttk.Frame):
         obs = self.result.get('observation', {})
         cov = self.result.get('coverage', {})
         source = self.result.get('source', {})
-        text = (f"{row['a']} ↔ {row['b']} · {EVIDENCE[row['evidence']]}\n\n"
+        text = (f"A {self.display_name(row['a'])} ↔ {self.display_name(row['b'])} · {EVIDENCE[row['evidence']]}\n\n"
                 f"回应轮次 {count('response_rounds')}；定向轮次 {count('directed_rounds')}（A {count('rounds_a')} / B {count('rounds_b')}）\n"
                 f"双向会话 {count('bidirectional_sessions')} / 会话 {count('sessions')}；消息 A {count('messages_a')} / B {count('messages_b')}\n"
                 f"去重发言 A {row.get('source_messages_a', 0)} / B {row.get('source_messages_b', 0)}（群聊为全选区，私聊仅该对象）\n"
@@ -439,7 +516,7 @@ class Desktop(ttk.Frame):
         text += '\n\n规则证据样例（每对最多 20 条；R 为选区输入行编号，非原生 ID；不显示正文）：\n'
         text += '结构不完整时：未知不等于 0；正数仅为已观测计数，不是下限。补全事件可能合并轮次/会话；比例和延迟也仅针对已观测样本。\n'
         for example in row.get('evidence_examples', []):
-            text += f"消息 {example['message_id'] or '无稳定ID'} → 来源 {example['source_message_id'] or '无'}；{example['sender']} → {example['target']}；{example['kind']}\n"
+            text += f"消息 {example['message_id'] or '无稳定ID'} → 来源 {example['source_message_id'] or '无'}；{self.display_name(example['sender'])} → {self.display_name(example['target'])}；{example['kind']}\n"
         assistance = self.result.get('assistance', {})
         if assistance.get('mode')=='generation':
             from generation_view import render_generation
@@ -450,7 +527,7 @@ class Desktop(ttk.Frame):
             candidates = [p for p in assistance.get('predictions',[]) if p.get('source_sender') in (row['a'],row['b']) and p.get('candidate_target') in (row['a'],row['b'])]
             for candidate in candidates[:30]:
                 text += (f"候选消息 {candidate['message_id']} → 来源消息 {candidate['source_message_id']}；"
-                         f"{candidate['source_sender']} → {candidate['candidate_target']}；余弦 {candidate['cosine']:.3f}；"
+                         f"{self.display_name(candidate['source_sender'])} → {self.display_name(candidate['candidate_target'])}；余弦 {candidate['cosine']:.3f}；"
                          f"依据：前 5 分钟同话题，未确认回应（输入行 {candidate['row']}）\n")
             text += f"本对子候选共 {len(candidates)} 条，此处最多显示 30 条；CLI 可导出全部有界证据及弃权原因。"
         view.insert('1.0',text)
