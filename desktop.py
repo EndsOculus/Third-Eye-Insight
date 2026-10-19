@@ -1,5 +1,6 @@
 """Responsive Tk desktop, with an isolated cancellable analysis process."""
 import logging
+import tempfile
 from logging.handlers import RotatingFileHandler
 import multiprocessing as mp
 from pathlib import Path
@@ -24,6 +25,8 @@ class Desktop(ttk.Frame):
         self.process = None
         self.events = None
         self.worker_job = None
+        self.scratch = None
+        self.pending_scratch = []
         self.generation_config = ""
         self.closing = False
         self.cancelling = False
@@ -177,6 +180,9 @@ class Desktop(ttk.Frame):
     def start(self, demo=False):
         if self.process is not None or self.closing:
             return
+        if not self.cleanup_scratch():
+            self.status.set("临时副本清理未完成，请关闭占用它的文件查看器后重试。")
+            return
         generation=self.assist_mode.get()=='生成实验'
         self.flags['ai_assist'].set(self.assist_mode.get()=='向量候选')
         common=dict(mode=self.mode.get(),ai_assist=self.flags['ai_assist'].get(),generate_assist=generation,generation_config=self.generation_config)
@@ -191,8 +197,9 @@ class Desktop(ttk.Frame):
         context = mp.get_context("spawn")
         self.events = context.Queue()
         gate=context.Event() if generation else None
-        self.process = context.Process(target=worker, args=(request, self.events, gate), daemon=True)
         try:
+            self.scratch = tempfile.TemporaryDirectory(prefix="tei-run-")
+            self.process = context.Process(target=worker, args=(request, self.events, gate, self.scratch.name), daemon=True)
             self.process.start()
             if generation:
                 from local_process import WindowsJob
@@ -208,6 +215,7 @@ class Desktop(ttk.Frame):
             self.process = None
             self.events.close()
             self.events = None
+            self.cleanup_scratch()
             self.status.set("无法启动后台进程，请检查 Python 环境。")
             return
         self.finished = False
@@ -224,6 +232,21 @@ class Desktop(ttk.Frame):
         self.demo_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         logging.getLogger("desktop").info("analysis_started")
+
+    def cleanup_scratch(self):
+        if self.scratch is not None:
+            self.pending_scratch.append(self.scratch)
+            self.scratch = None
+        remaining = []
+        for temporary in self.pending_scratch:
+            try:
+                temporary.cleanup()
+            except OSError:
+                remaining.append(temporary)
+        self.pending_scratch = remaining
+        if remaining:
+            logging.getLogger("desktop").warning("temporary_cleanup_pending")
+        return not remaining
 
     def cancel(self):
         if self.process is not None and not self.cancelling:
@@ -288,6 +311,7 @@ class Desktop(ttk.Frame):
             self.process = None
             self.events.close()
             self.events = None
+            self.cleanup_scratch()
             if self.cancelling:
                 self.status.set("已取消。原始数据未修改。")
                 self.summary.set("已取消 · 可重新开始")
@@ -297,7 +321,10 @@ class Desktop(ttk.Frame):
             self.run_button.configure(state="normal")
             self.demo_button.configure(state="normal")
             self.cancel_button.configure(state="disabled")
+        if self.pending_scratch:
+            self.status.set("临时副本清理未完成，请关闭占用后重试；原始数据库未修改。")
         if self.closing and self.process is None:
+            self.cleanup_scratch()
             self.root.destroy()
             return
         self.poll_id = self.after(80, self.poll)

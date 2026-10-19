@@ -99,3 +99,6 @@ __pycache__/
 !USAGE.md
 !THIRD_PARTY.md
 !docs/images/desktop-demo.png
+
+!database_access.py
+!tests/test_database_access.py

@@ -1,3 +1,11 @@
+## Unreleased — 自动识别与只读解密修复
+
+- 修复未勾选 SQLCipher 时错误走普通 SQLite 的根因：按文件内容和配置自动识别，支持 1024 字节 NT 前缀，使用既有本地解密配置。
+- 使用只读连接及隔离临时副本；拒绝非空 WAL/回滚日志，加入复制空间/时限、查询时限、变化检测和取消清理，错误采用固定脱敏提示。
+- 修复 SQLCipher 含 NUL 文本字段截断，以及临时文件清理失败中断界面轮询的问题。
+- 验证合成大数据预算、中文/空格路径、重复点击、取消/关闭、清理失败重试及真实离线库最小流程。真实库验证不发送外部模型，原文件前后哈希一致。无屏幕截图/视觉复核，仅验证真实 Tk 事件循环与控件行为。
+- 启动仍为 Start Insight.vbs；调试入口 debug_desktop.ps1。Beta2.6 标签及已发布资源保持原样；此修复尚未发布。
+
 ## Beta2.6 / 2.6.0b1 — 2026-10-19
 
 Source-only prerelease of the modern Windows desktop and interaction v2. Start with `uv sync --locked`, then `Start Insight.vbs`; no executable, dependencies or models are bundled. Optional local vector/generation assistance remains default-off and experimental. Generation holdout: 8 correct / 4 wrong targets among 12 predictions; not validated real-chat or emotion inference. See README.md and GENERATION.md for installation, upgrade boundaries, limits and privacy. This release supersedes the historical v2.5 notes below; only the default v2 desktop/CLI behavior describes this release.

@@ -1,8 +1,7 @@
 """Read-only v2 adapter. Opaque NT payloads are NOT reverse-engineered as replies."""
 import json
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from database_access import open_database, DatabaseError
 
 SHANGHAI = timezone(timedelta(hours=8))
 MAX_PAYLOAD = 8192
@@ -55,7 +54,7 @@ def decode_payload(raw, allow_structure=False):
         return result
 
 
-def extract_interactions(db_path, identifier, mode='group', start='', end='', max_rows=50000, cipher_config=None, source_format='nt'):
+def extract_interactions(db_path, identifier, mode='group', start='', end='', max_rows=50000, cipher_config=None, source_format='nt', *, force_encrypted=False, scratch_dir=None, cancelled=lambda: False, progress=lambda n,t: None):
     """Extract all message types in the selected period; no silent truncation.
 
     Numeric NT columns are read conservatively. 40001 is used as an optional
@@ -65,32 +64,15 @@ def extract_interactions(db_path, identifier, mode='group', start='', end='', ma
         raise ValueError('Invalid mode')
     identifier = str(int(identifier))
     lo, hi = date_bounds(start, end)
-    config = cipher_config or {}
-    encrypted = bool(config.get('encrypted'))
-    conn = None
-    try:
-        if encrypted:
-            from extract_chat_data import _sqlcipher_query_status
-            def query(sql, params=()):
-                # Only internally constructed integer literals may reach this branch.
-                if params:
-                    raise ValueError('Unexpected cipher parameters')
-                df, rc, _ = _sqlcipher_query_status(str(db_path), sql, config, verbose=False, max_result_bytes=MAX_TOTAL_PAYLOAD)
-                if rc != 0:
-                    raise ValueError('Database query failed or selected payload exceeds 32 MiB; narrow the dates.')
-                return df.to_dict('records')
-        else:
-            conn = sqlite3.connect(Path(db_path).resolve().as_uri() + '?mode=ro', uri=True)
-            conn.row_factory = sqlite3.Row
-            conn.execute('BEGIN')
-            def query(sql, params=()):
-                return [dict(r) for r in conn.execute(sql, params)]
+    with open_database(db_path, force_encrypted=force_encrypted, config=cipher_config,
+                       scratch_dir=scratch_dir, cancelled=cancelled, progress=progress) as (conn, encrypted, access):
+        query = conn.query
         table = 'tei_messages_v1' if source_format == 'tei' else ('group_msg_table' if mode == 'group' else 'c2c_msg_table')
         columns = {str(r['name']) for r in query(f'PRAGMA table_info({table})')}
         required = ({'sender_id','peer_id','message_id','timestamp','conversation_id','mode','content','metadata'} if source_format == 'tei'
                     else {'40033', '40050', '40800', '40027' if mode == 'group' else '40030'})
         if not required <= columns:
-            raise ValueError('Unsupported database schema')
+            raise DatabaseError('schema')
         params = []
         def bind(value):
             if encrypted:
@@ -180,9 +162,6 @@ def extract_interactions(db_path, identifier, mode='group', start='', end='', ma
                                order=index, **payload))
         return result, dict(selected_rows=len(rows), invalid_time=invalid_time, invalid_sender=invalid_sender,
                             start=start or None, end=end or None, timezone='Asia/Shanghai', truncated=False,
-                            source=source_format,
+                            source=source_format, **access,
                             native_text_rows=sum(r.get('native_text_status')=='parsed' for r in result),
                             native_quote_rows=sum(r.get('native_quote_present',False) for r in result))
-    finally:
-        if conn is not None:
-            conn.close()
