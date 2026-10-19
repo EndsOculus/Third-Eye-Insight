@@ -86,3 +86,12 @@ __pycache__/
 
 !native_payload.py
 !tests/test_native_payload.py
+
+!generation_assist.py
+!generation_view.py
+!local_process.py
+!evaluate_generation.py
+!tests/test_generation.py
+!tests/test_local_process.py
+!tests/generation_holdout.jsonl
+!GENERATION.md

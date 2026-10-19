@@ -153,3 +153,23 @@ def test_unknown_details_state_limits_and_direction_categories():
         assert '≥' not in text
     finally:
         app.after_cancel(app.poll_id);root.destroy()
+
+
+def test_generation_gui_missing_config_and_job_cancel():
+    root=tk.Tk();root.withdraw();app=Desktop(root)
+    try:
+        app.assist_mode.set('\u751f\u6210\u5b9e\u9a8c')
+        app.generation_config='missing-synthetic-local-config.json'
+        app.start(demo=True)
+        pump(root,lambda:app.process is None)
+        assert app.result['assistance']['status']=='model_unavailable'
+        assert app.worker_job is None
+        app.start(demo=True);pid=app.process.pid
+        app.start(demo=True);assert app.process.pid==pid
+        app.cancel();app.cancel()
+        pump(root,lambda:app.process is None)
+        assert app.worker_job is None
+    finally:
+        app.close()
+        try:root.destroy()
+        except tk.TclError:pass

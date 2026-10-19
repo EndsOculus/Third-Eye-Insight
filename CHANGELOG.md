@@ -1,3 +1,10 @@
+## Optional local generation — 2026-10-19
+
+- Add default-off, fingerprinted local model classification and target candidates with validated anonymous evidence, separate from direct counts. No downloads, external API calls or raw model output in results.
+- Keep the UI responsive with bounded stdin/output and nested Windows process jobs; fix synchronous stdin writes that could block timeout/cancel and check total limits after the final inference.
+- Record the frozen independent synthetic holdout including four wrong attributions and limited topic/type accuracy. See GENERATION.md; no real-chat validity claim.
+- Verify actual GPU-backed synthetic GUI completion/cancel/close and independent process cleanup regressions.
+
 ## Independent review corrections — 2026-10-19
 
 - Restrict conflicting-message quality warnings to affected participants. An unrelated group's conflicting ID no longer changes a clean pair's evidence status; preserve the global conflict count.

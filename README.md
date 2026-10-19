@@ -27,3 +27,7 @@ SQLCipher 仅在用户勾选时读取本地私有配置；不要提交配置或�
 `uv sync --locked --group dev` 后运行 `.venv\Scripts\python.exe -m pytest tests -q`。Windows 若连续重建 Tk 解释器报初始化错误，请按 CI 工作流将 tests/test_desktop.py 的每个节点置于独立进程运行，保留全部断言。测试、性能口径和限制见 [VALIDATION.md](VALIDATION.md)、[BENCHMARK_V2.md](BENCHMARK_V2.md)、[SECURITY.md](SECURITY.md)。
 
 回滚基线为 `a942818ad2bdbc46543fbc956f8eca2e4a520a65`；源码 Git bundle 留在本机交付工作区，未入仓。建议新建恢复分支，不用 hard reset 覆盖未提交工作。
+
+## Optional generative experiment
+
+The assistance selector now separates off, vector candidates and default-off local generation. Generation uses an explicitly configured local runtime/model; it can classify coarse topics and utterance types and propose uncertain targets with anonymous evidence IDs. The independent synthetic holdout includes four wrong target predictions, so this is not validated emotion/relationship inference. See [GENERATION.md](GENERATION.md) for configuration, actual results, limits and cancellation behavior.

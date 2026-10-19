@@ -16,6 +16,8 @@ def run_analysis(argv=None):
     parser.add_argument('--exclude', default='')
     parser.add_argument('--source-format', choices=['nt','tei'], default='nt')
     parser.add_argument('--ai-assist', action='store_true', help='Optional local vector topic candidates, not verified replies')
+    parser.add_argument('--generate-assist', action='store_true', help='Experimental local generation; at most 12 records')
+    parser.add_argument('--generation-config', default='', help='Local resource JSON; never exported')
     parser.add_argument('--encrypted', action='store_true')
     parser.add_argument('--demo', action='store_true')
     parser.add_argument('--output', help='Optional NEW anonymous JSON file; never overwrites an existing file')
@@ -30,6 +32,8 @@ def run_analysis(argv=None):
         else:
             print(text)
         return result
+    except KeyboardInterrupt:
+        parser.exit(130, 'Analysis cancelled.\n')
     except (ValueError, OSError):
         parser.exit(2, 'Analysis/export failed. Check dates, limits, database schema and a new output path. No private details logged.\n')
 

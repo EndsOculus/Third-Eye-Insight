@@ -23,6 +23,8 @@ class Desktop(ttk.Frame):
         self.pack(fill="both", expand=True)
         self.process = None
         self.events = None
+        self.worker_job = None
+        self.generation_config = ""
         self.closing = False
         self.cancelling = False
         self.finished = False
@@ -96,8 +98,9 @@ class Desktop(ttk.Frame):
         self.source_format = tk.StringVar(value="原生 NT")
         options = ttk.Frame(modes, style="Card.TFrame")
         options.pack(side="left", padx=(12, 0))
-        for key, label in (("encrypted", "SQLCipher"), ("ai_assist", "本地话题候选")):
-            ttk.Checkbutton(options, text=label, variable=self.flags[key]).pack(side="left", padx=(0, 12))
+        ttk.Checkbutton(options,text='SQLCipher',variable=self.flags['encrypted']).pack(side='left',padx=(0,8))
+        self.assist_mode=tk.StringVar(value='辅助关闭')
+        ttk.Combobox(options,textvariable=self.assist_mode,values=('辅助关闭','向量候选','生成实验'),state='readonly',width=8).pack(side='left',padx=(0,8))
         ttk.Combobox(options, textvariable=self.source_format, values=("原生 NT", "结构导入"), state="readonly", width=8).pack(side="left", padx=(0,8))
         ttk.Label(modes, text="排除（逗号）", style="Card.TLabel").pack(side="left", padx=(2, 4))
         ttk.Entry(modes, textvariable=self.values["exclude"], width=16).pack(side="left")
@@ -109,6 +112,7 @@ class Desktop(ttk.Frame):
         self.demo_button.pack(side="left", padx=8)
         self.cancel_button = ttk.Button(controls, text="取消", command=self.cancel, state="disabled")
         self.cancel_button.pack(side="left")
+        ttk.Button(controls,text="生成设置",command=self.configure_generator).pack(side="left",padx=8)
         self.progress = ttk.Progressbar(controls, maximum=100, length=180)
         self.status = tk.StringVar(value="准备就绪。先体验演示，或选择只读数据库。")
         self.status_label = ttk.Label(self, textvariable=self.status, style="Status.TLabel", wraplength=840)
@@ -159,6 +163,12 @@ class Desktop(ttk.Frame):
         self.poll_id = self.after(80, self.poll)
         root.protocol("WM_DELETE_WINDOW", self.close)
 
+    def configure_generator(self):
+        path=filedialog.askopenfilename(title='选择本地生成资源JSON（不上传、不记录路径）',filetypes=[('JSON','*.json')])
+        if path:
+            self.generation_config=path
+            self.status.set('已选择生成资源配置。生成模式为实验性；仅本地运行，不自动下载。')
+
     def browse(self):
         path = filedialog.askopenfilename(title="选择数据库（只读）", filetypes=[("数据库", "*.db *.sqlite *.sqlite3"), ("所有文件", "*")])
         if path:
@@ -167,7 +177,10 @@ class Desktop(ttk.Frame):
     def start(self, demo=False):
         if self.process is not None or self.closing:
             return
-        request = Request(demo=True, mode=self.mode.get(), ai_assist=self.flags["ai_assist"].get()) if demo else Request(mode=self.mode.get(), source_format="nt" if self.source_format.get()=="原生 NT" else "tei", **{k:v.get().strip() for k,v in self.values.items()}, **{k:v.get() for k,v in self.flags.items()})
+        generation=self.assist_mode.get()=='生成实验'
+        self.flags['ai_assist'].set(self.assist_mode.get()=='向量候选')
+        common=dict(mode=self.mode.get(),ai_assist=self.flags['ai_assist'].get(),generate_assist=generation,generation_config=self.generation_config)
+        request = Request(demo=True,**common) if demo else Request(**common,source_format='nt' if self.source_format.get()=='原生 NT' else 'tei',encrypted=self.flags['encrypted'].get(),**{k:v.get().strip() for k,v in self.values.items()})
         try:
             request.validate()
         except ValueError as exc:
@@ -177,10 +190,21 @@ class Desktop(ttk.Frame):
         from desktop_core import worker
         context = mp.get_context("spawn")
         self.events = context.Queue()
-        self.process = context.Process(target=worker, args=(request, self.events), daemon=True)
+        gate=context.Event() if generation else None
+        self.process = context.Process(target=worker, args=(request, self.events, gate), daemon=True)
         try:
             self.process.start()
+            if generation:
+                from local_process import WindowsJob
+                self.worker_job=WindowsJob()
+                self.worker_job.assign(self.process.pid)
+                gate.set()
         except Exception:
+            if self.worker_job is not None:
+                self.worker_job.close();self.worker_job=None
+            if self.process is not None and self.process.pid is not None:
+                self.process.terminate();self.process.join(timeout=3)
+                if not self.process.is_alive():self.process.close()
             self.process = None
             self.events.close()
             self.events = None
@@ -206,6 +230,8 @@ class Desktop(ttk.Frame):
             self.cancelling = True
             self.cancel_button.configure(state="disabled")
             self.status.set("正在取消…")
+            if self.worker_job is not None:
+                self.worker_job.close();self.worker_job=None
             if self.process.is_alive():
                 self.process.terminate()
 
@@ -232,6 +258,8 @@ class Desktop(ttk.Frame):
                                      f"实际覆盖 {obs.get('actual_start') or '无'} 至 {obs.get('actual_end') or '无'} · 结构已知 {cov.get('structured_rows', 0)}/{cov.get('total_rows', 0)}")
                     assist = payload.get("assistance", {})
                     ai_note = {"disabled":"", "completed":f" 本地话题候选 {assist.get('candidate_count',0)} 条（非回应事实）。", "model_unavailable":" 本地模型不可用，已保留规则统计。", "limit_exceeded":" AI 选区超过 2000 条；未运行辅助。"}.get(assist.get("status"), "")
+                    if assist.get('mode')=='generation':
+                        ai_note={'completed':f" 生成实验：候选 {assist.get('candidate_count',0)} / 弃权 {assist.get('abstention_count',0)}。",'limit_exceeded':' 生成实验最多12条，请缩小选区。','model_unavailable':' 生成资源不可用；未下载。','time_limit':' 生成达到时间上限，未返回部分结果。'}.get(assist.get('status'),' 生成已停止。')
                     issues = cov.get('unresolved_references', 0) + cov.get('conflicting_ids', 0) + source.get('invalid_time', 0) + source.get('invalid_sender', 0)
                     self.status.set("完成 · 真实数据测量效度尚未验证。双击记录或按 Enter 查看统计口径。" + (" 存在未解析/冲突/无效记录，见证据详情。" if issues else "") + ai_note)
                     self.status_label.configure(style="Success.TLabel")
@@ -253,6 +281,8 @@ class Desktop(ttk.Frame):
             # Normal worker exit joins its queue feeder; drain final events before closing.
             # Cancellation can interrupt a queue write, so drain_events skips it.
             self.drain_events()
+            if self.worker_job is not None:
+                self.worker_job.close();self.worker_job=None
             self.process.close()
             self.progress.pack_forget()
             self.process = None
@@ -384,14 +414,18 @@ class Desktop(ttk.Frame):
         for example in row.get('evidence_examples', []):
             text += f"消息 {example['message_id'] or '无稳定ID'} → 来源 {example['source_message_id'] or '无'}；{example['sender']} → {example['target']}；{example['kind']}\n"
         assistance = self.result.get('assistance', {})
-        text += "\n\n本地 AI 辅助：" + assistance.get('status','disabled') + "（可关闭；只提供话题候选）\n"
-        text += "向量模型不具备已验证的问答、安慰、争论、讽刺或情感分类能力。余弦不是置信概率。\n"
-        candidates = [p for p in assistance.get('predictions',[]) if p.get('source_sender') in (row['a'],row['b']) and p.get('candidate_target') in (row['a'],row['b'])]
-        for candidate in candidates[:30]:
-            text += (f"候选消息 {candidate['message_id']} → 来源消息 {candidate['source_message_id']}；"
-                     f"{candidate['source_sender']} → {candidate['candidate_target']}；余弦 {candidate['cosine']:.3f}；"
-                     f"依据：前 5 分钟同话题，未确认回应（输入行 {candidate['row']}）\n")
-        text += f"本对子候选共 {len(candidates)} 条，此处最多显示 30 条；CLI 可导出全部有界证据及弃权原因。"
+        if assistance.get('mode')=='generation':
+            from generation_view import render_generation
+            text += render_generation(assistance)
+        else:
+            text += "\n\n本地 AI 辅助：" + assistance.get('status','disabled') + "（可关闭；只提供话题候选）\n"
+            text += "向量模型不具备已验证的问答、安慰、争论、讽刺或情感分类能力。余弦不是置信概率。\n"
+            candidates = [p for p in assistance.get('predictions',[]) if p.get('source_sender') in (row['a'],row['b']) and p.get('candidate_target') in (row['a'],row['b'])]
+            for candidate in candidates[:30]:
+                text += (f"候选消息 {candidate['message_id']} → 来源消息 {candidate['source_message_id']}；"
+                         f"{candidate['source_sender']} → {candidate['candidate_target']}；余弦 {candidate['cosine']:.3f}；"
+                         f"依据：前 5 分钟同话题，未确认回应（输入行 {candidate['row']}）\n")
+            text += f"本对子候选共 {len(candidates)} 条，此处最多显示 30 条；CLI 可导出全部有界证据及弃权原因。"
         view.insert('1.0',text)
         view.configure(state='disabled')
         ttk.Button(win, text='关闭', command=win.destroy).pack(pady=8)
