@@ -90,7 +90,7 @@ def generation_demo_records(mode='group'):
                  reply_to=None,mentions=[],forwarded=False,order=i) for i,(sender,text) in enumerate(messages)]
 
 
-def analyze(request, progress=lambda value, text: None):
+def analyze(request, progress=lambda value, text: None, scratch_dir=None):
     request.validate()
     started = time.perf_counter()
     from interaction_data import extract_interactions
@@ -105,14 +105,8 @@ def analyze(request, progress=lambda value, text: None):
         source = dict(selected_rows=len(records), invalid_time=0, invalid_sender=0, start=request.start or None,
                       end=request.end or None, timezone='Asia/Shanghai', truncated=False, source='synthetic fixtures')
     else:
-        config = {}
-        if request.encrypted:
-            import json
-            with open(Path(__file__).with_name('config.json'), encoding='utf-8') as handle:
-                config = json.load(handle)
-            config['encrypted'] = True
         try:
-            records, source = extract_interactions(request.db, request.identifier, request.mode, request.start, request.end, MAX_ROWS, config, request.source_format)
+            records, source = extract_interactions(request.db, request.identifier, request.mode, request.start, request.end, MAX_ROWS, None, request.source_format, force_encrypted=request.encrypted, scratch_dir=scratch_dir, progress=progress)
         except ValueError as exc:
             # Adapter errors are fixed strings, never SQL, content, or paths.
             raise InputError(str(exc)) from None
@@ -163,7 +157,7 @@ def analyze(request, progress=lambda value, text: None):
     return result
 
 
-def worker(request, events, start_gate=None):
+def worker(request, events, start_gate=None, scratch_dir=None):
     if start_gate is not None and not start_gate.wait(30):
         return
     logging.disable(logging.CRITICAL)
@@ -174,7 +168,7 @@ def worker(request, events, start_gate=None):
     if sys.stderr is None:
         sys.stderr = open(os.devnull, 'w')
     try:
-        result = analyze(request, lambda n, text: events.put(('progress',(n,text))))
+        result = analyze(request, lambda n, text: events.put(('progress',(n,text))), scratch_dir=scratch_dir)
         events.put(('result',result))
     except InputError as exc:
         events.put(('error',str(exc)))

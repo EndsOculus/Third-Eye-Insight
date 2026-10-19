@@ -30,4 +30,4 @@ jobs:
             uv run --no-sync python -m pytest $node -q
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-      - run: uv run --no-sync ruff check desktop.py desktop_core.py embedding_cache.py extract_chat_data.py metrics.py runtime_config.py local_process.py generation_assist.py generation_view.py evaluate_generation.py native_payload.py interaction_data.py interaction_v2.py interaction_assist.py interaction_cli.py evaluate_interactions.py --select E9,F63,F7,F82
+      - run: uv run --no-sync ruff check database_access.py desktop.py desktop_core.py embedding_cache.py extract_chat_data.py metrics.py runtime_config.py local_process.py generation_assist.py generation_view.py evaluate_generation.py native_payload.py interaction_data.py interaction_v2.py interaction_assist.py interaction_cli.py evaluate_interactions.py --select E9,F63,F7,F82

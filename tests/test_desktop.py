@@ -173,3 +173,54 @@ def test_generation_gui_missing_config_and_job_cancel():
         app.close()
         try:root.destroy()
         except tk.TclError:pass
+
+
+def test_prefixed_database_gui_and_parent_cleanup(tmp_path):
+    from pathlib import Path
+    from tests.interaction_fixtures import make_db,msg
+    path=tmp_path/'\u4e2d\u6587 space.db'
+    make_db(path,[msg(1,0,'a'),msg(2,10,'b')],source_format='nt')
+    path.write_bytes(b'N'*1024+path.read_bytes())
+    root=tk.Tk();root.withdraw();app=Desktop(root)
+    try:
+        app.values['db'].set(str(path));app.values['identifier'].set('99')
+        app.start();scratch=Path(app.scratch.name)
+        pump(root,lambda:app.process is None)
+        assert app.result['source']['database_format']=='nt_prefix_sqlite'
+        assert app.result['rows']==2 and not scratch.exists()
+        app.start();scratch=Path(app.scratch.name)
+        # An interrupted worker may leave a partial derived file. Parent owns cleanup.
+        (scratch/'partial.db').write_bytes(b'synthetic')
+        app.cancel();app.cancel();pump(root,lambda:app.process is None)
+        assert not scratch.exists()
+        app.start();scratch=Path(app.scratch.name);app.close()
+        pump(root,lambda:app.process is None)
+        assert not scratch.exists()
+    finally:
+        try:root.destroy()
+        except tk.TclError:pass
+
+
+def test_cleanup_failure_recovers_ui_and_retries():
+    import queue
+    root=tk.Tk();root.withdraw();app=Desktop(root);app.after_cancel(app.poll_id)
+    class Temp:
+        attempts=0
+        def cleanup(self):
+            self.attempts+=1
+            if self.attempts==1:raise PermissionError('private-path-must-not-appear')
+    class Process:
+        def is_alive(self):return False
+        def join(self,**kwargs):pass
+        def close(self):pass
+    class Events(queue.Queue):
+        def close(self):pass
+    temporary=Temp();app.scratch=temporary;app.process=Process();app.events=Events()
+    try:
+        app.poll()
+        assert app.process is None and app.pending_scratch==[temporary]
+        assert str(app.run_button['state'])=='normal'
+        assert 'private-path' not in app.status.get()
+        assert app.cleanup_scratch() and not app.pending_scratch
+    finally:
+        app.after_cancel(app.poll_id);root.destroy()
