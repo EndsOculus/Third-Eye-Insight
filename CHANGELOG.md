@@ -4,7 +4,7 @@
 - Regressions cover same-conversation unrelated members and every conflicting version's sender, mention target and quoted-source author.
 - Collect explicit-link delay samples independently of turn deduplication; omit private lexical samples without unique source/target bodies.
 - Compute simultaneous group/private turns from pre-batch state; sender renumbering cannot change counts. Expose direction-specific response/link/@ counts.
-- Display incomplete directional values as unknown or observed lower bounds, and explicitly distinguish group-reference and private-transition latency.
+- Display incomplete directional values as unknown or observed counts with incomplete-structure status, and explicitly distinguish group-reference and private-transition latency.
 - Parse bounded native 40800/45101 BLOB body elements, excluding 47423 cached quotes. Recipient fields remain unknown; preserve AI candidate-only scope.
 
 ## Interaction v2 — 2026-10-19

@@ -306,7 +306,7 @@ class Desktop(ttk.Frame):
         unknown = row['evidence'] == 'coverage_unknown'
         def count(key):
             value = row[key]
-            return ('≥ '+str(value) if value else '未知') if unknown else str(value)
+            return ('已观测 '+str(value) if value else '未知') if unknown else str(value)
         imbalance = row.get('one_way_fraction')
         return (row['a'], row['b'], count('response_rounds'), count('bidirectional_sessions'),
                 f"{row['source_messages_a']} / {row['source_messages_b']}", count('common_active_days'),
@@ -346,7 +346,7 @@ class Desktop(ttk.Frame):
         unknown = row['evidence'] == 'coverage_unknown'
         def count(key):
             number = row.get(key, 0)
-            return ('≥ '+str(number) if number else '未知') if unknown else str(number)
+            return ('已观测 '+str(number) if number else '未知') if unknown else str(number)
         def value(key, unit=''):
             if row.get(key) is None:
                 return '未知 / 无已观测样本' if unknown else '未定义 / 无有效样本'
@@ -380,7 +380,7 @@ class Desktop(ttk.Frame):
                 "样本不足阈值：少于 3 次回应或少于 2 个双向会话；这是描述提示，不是统计置信保证。\n"
                 "无亲密度总分、夜间奖励或自动权重。真实数据测量效度尚未验证。")
         text += '\n\n规则证据样例（每对最多 20 条；R 为选区输入行编号，非原生 ID；不显示正文）：\n'
-        text += '覆盖不足时：未知不等于 0；≥ 表示已观测下限；比例/延迟仅针对已观测样本。\n'
+        text += '结构不完整时：未知不等于 0；正数仅为已观测计数，不是下限。补全事件可能合并轮次/会话；比例和延迟也仅针对已观测样本。\n'
         for example in row.get('evidence_examples', []):
             text += f"消息 {example['message_id'] or '无稳定ID'} → 来源 {example['source_message_id'] or '无'}；{example['sender']} → {example['target']}；{example['kind']}\n"
         assistance = self.result.get('assistance', {})

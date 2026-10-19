@@ -35,7 +35,7 @@ Limits: 50,000 rows, 300 participants, 100,000 recipient entries, 32 MiB selecte
 
 `reply_links_a/b` count explicit group reference links, `response_rounds_a/b` count eligible responses by direction, and `mention_rounds_a/b` count directed @ rounds. General `rounds_a/b` include all attributed direction events, so their balance is not reply reciprocity. Private response rounds are observed speaker transitions, not confirmed answers. Member A/B follow the displayed anonymous pair order.
 
-With incomplete structure, zero direction-derived values display unknown; positive counts display observed lower bounds. Ratios and delays are limited to observed samples, not bounds on the complete population. Raw deduplicated message counts remain raw counts. CLI numeric counters retain observed values with the mandatory `evidence`/`structure_coverage` status; clients must not interpret unknown zero counters as proven absence.
+With incomplete structure, zero direction-derived values display unknown; positive counts display "observed N" with the incomplete-structure status, never a lower-bound claim. These statistics are not all monotonic: events at 00:00 and 08:00 form two sessions/turns when a 04:00 event is unresolved, but one session/turn when that bridge resolves to the same direction. Ratios and delays are limited to observed samples, not bounds on the complete population. Raw deduplicated message counts remain raw counts. CLI numeric counters retain observed values with the mandatory `evidence`/`structure_coverage` status; clients must not interpret unknown zero counters as proven absence.
 
 ## Limited native BLOB support and provenance
 

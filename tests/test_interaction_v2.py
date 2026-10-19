@@ -219,3 +219,16 @@ def test_private_simultaneous_texts_do_not_choose_lexical_sample_by_id(side):
     assert first['lexical_samples']==0 and first['lexical_overlap_mean'] is None
     if side=='source':
         assert first['evidence_examples'][-1]['source_message_id'] is None
+
+
+def test_resolving_bridge_can_reduce_observed_sessions_and_rounds():
+    rows=[msg(1,0,'first',mentions=['2']),
+          msg(1,4*3600,'bridge',known=False),
+          msg(1,8*3600,'last',mentions=['2'])]
+    incomplete=pair(run(rows))
+    assert incomplete['evidence']=='coverage_unknown'
+    assert incomplete['sessions']==incomplete['directed_rounds']==2
+    rows[1]=dict(rows[1],structure='known',mentions=['2'])
+    resolved=pair(run(rows))
+    assert resolved['sessions']==resolved['directed_rounds']==1
+    assert resolved['messages_a']==3 and incomplete['messages_a']==2

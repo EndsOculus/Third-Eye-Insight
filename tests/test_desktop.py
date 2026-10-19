@@ -131,7 +131,7 @@ def test_unknown_directional_cells_are_not_plain_zero():
     assert values[2]==values[3]==values[5]==values[6]=='未知'
     positive=dict(row,response_rounds=3,bidirectional_sessions=1,common_active_days=1)
     values=Desktop.row_values(positive)
-    assert values[2]=='≥ 3' and values[3]==values[5]=='≥ 1'
+    assert values[2]=='已观测 3' and values[3]==values[5]=='已观测 1'
 
 
 def test_unknown_details_state_limits_and_direction_categories():
@@ -149,6 +149,7 @@ def test_unknown_details_state_limits_and_direction_categories():
         assert '双向会话 未知' in text and '共同活跃日 未知' in text
         assert '方向性回应 A 未知 / B 未知' in text
         assert '延迟类别：群聊明确引用' in text
-        assert '≥ 表示已观测下限' in text
+        assert '正数仅为已观测计数，不是下限' in text
+        assert '≥' not in text
     finally:
         app.after_cancel(app.poll_id);root.destroy()
