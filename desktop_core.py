@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 import time
 
-MAX_ROWS = 50000
+MAX_ROWS = None
 MAX_USERS = 300
 
 
@@ -90,7 +90,21 @@ def generation_demo_records(mode='group'):
                  reply_to=None,mentions=[],forwarded=False,order=i) for i,(sender,text) in enumerate(messages)]
 
 
-def analyze(request, progress=lambda value, text: None, scratch_dir=None):
+def analyze(request, progress=lambda value, text: None, scratch_dir=None, local_identity=False):
+    if request.demo:
+        return _analyze(request, progress, scratch_dir, local_identity=local_identity)
+    from streaming_store import RecordStore
+    excluded = {s.strip() for s in request.exclude.split(',') if s.strip()}
+    from streaming_store import ResourceLimit
+    try:
+        with RecordStore(scratch_dir, excluded=excluded, mode=request.mode, progress=progress) as store:
+            store.load_names = local_identity
+            return _analyze(request, progress, scratch_dir, store, local_identity)
+    except ResourceLimit as exc:
+        raise InputError(str(exc)) from None
+
+
+def _analyze(request, progress, scratch_dir, store=None, local_identity=False):
     request.validate()
     started = time.perf_counter()
     from interaction_data import extract_interactions
@@ -106,34 +120,39 @@ def analyze(request, progress=lambda value, text: None, scratch_dir=None):
                       end=request.end or None, timezone='Asia/Shanghai', truncated=False, source='synthetic fixtures')
     else:
         try:
-            records, source = extract_interactions(request.db, request.identifier, request.mode, request.start, request.end, MAX_ROWS, None, request.source_format, force_encrypted=request.encrypted, scratch_dir=scratch_dir, progress=progress)
+            records, source = extract_interactions(request.db, request.identifier, request.mode, request.start, request.end, MAX_ROWS, None, request.source_format, force_encrypted=request.encrypted, scratch_dir=scratch_dir, progress=progress, sink=store)
         except ValueError as exc:
             # Adapter errors are fixed strings, never SQL, content, or paths.
             raise InputError(str(exc)) from None
-    excluded = {s.strip() for s in request.exclude.split(',') if s.strip()}
-    before = len(records)
-    records = [dict(r, mentions=[t for t in r['mentions'] if t not in excluded]) for r in records
-               if r['sender'] not in excluded and (request.mode != 'c2c' or r['peer'] not in excluded)]
-    source['excluded_rows'] = before-len(records)
+    if store is not None:
+        source['excluded_rows'] = store.excluded_rows
+        store.prepare()
+    else:
+        excluded = {s.strip() for s in request.exclude.split(',') if s.strip()}
+        before = len(records)
+        records = [dict(r, mentions=[t for t in r['mentions'] if t not in excluded]) for r in records
+                   if r['sender'] not in excluded and (request.mode != 'c2c' or r['peer'] not in excluded)]
+        source['excluded_rows'] = before-len(records)
     progress(45, '统计定向轮次、会话与结构覆盖…')
     try:
-        result = analyze_records(records, mode=request.mode, self_id=request.identifier or ('1' if request.demo and request.generate_assist else '20000'), observation=source)
+        result = analyze_records(records, mode=request.mode, self_id=str(int(request.identifier)) if request.identifier else ('1' if request.demo and request.generate_assist else '20000'), observation=source)
     except ValueError as exc:
         raise InputError(str(exc)) from None
     assistance = {'status':'disabled','predictions':[]}
+    assist_records = records.assist if store is not None else records
     if request.generate_assist:
         progress(60, '核验本地生成资源（实验；不会下载）。')
         from generation_assist import generate_candidates
-        assistance = generate_candidates(records,request.generation_config,progress=progress)
+        assistance = generate_candidates(assist_records,request.generation_config,progress=progress)
     elif request.ai_assist:
         progress(65, '本地模型筛选话题候选（不是已验证回应）…')
         from interaction_assist import topic_candidates
-        assistance = topic_candidates(records)
+        assistance = topic_candidates(assist_records)
     users = sorted({u for p in result['pairs'] for u in (p['a'], p['b'])}, key=lambda u:(len(u),u))
     labels = {u:f'成员 {i+1:03d}' for i,u in enumerate(users)}
     result['pairs'] = [dict(p, a=labels[p['a']], b=labels[p['b']]) for p in result['pairs']
                        if not request.focus or request.focus in (p['a'],p['b'])]
-    evidence_keys = {(r.get('thread',r.get('peer','group')),r.get('message_id')): f"R{r.get('order',i)+1:06d}" for i,r in enumerate(records) if r.get('message_id')}
+    evidence_keys = store.evidence_keys if store is not None else {(r.get('thread',r.get('peer','group')),r.get('message_id')): f"R{r.get('order',i)+1:06d}" for i,r in enumerate(records) if r.get('message_id')}
     for item in result['pairs']:
         for example in item.get('evidence_examples', []):
             thread=example.pop('thread')
@@ -145,12 +164,17 @@ def analyze(request, progress=lambda value, text: None, scratch_dir=None):
     for prediction in assistance['predictions']:
         thread=prediction.pop('thread')
         prediction['source_message_id']=evidence_keys.get((thread,prediction['source_message_id']))
-        prediction['message_id']=f"R{records[prediction['row']-1].get('order',prediction['row']-1)+1:06d}"
+        prediction['message_id']=f"R{assist_records[prediction['row']-1].get('order',prediction['row']-1)+1:06d}"
         if 'evidence_rows' in prediction:
-            prediction['evidence_ids'] = [f"R{records[i-1].get('order',i-1)+1:06d}" for i in prediction.pop('evidence_rows')]
+            prediction['evidence_ids'] = [f"R{assist_records[i-1].get('order',i-1)+1:06d}" for i in prediction.pop('evidence_rows')]
         prediction['source_sender'] = labels.get(prediction['source_sender'], '未编号成员')
         if prediction['candidate_target'] is not None:
             prediction['candidate_target'] = labels.get(prediction['candidate_target'], '未编号成员')
+    if local_identity:
+        names = getattr(store, 'local_names', {}) if store is not None else {}
+        result['_local_identity'] = {labels[u]: {'qq':u, 'name':names.get(u, '')} for u in users}
+        owner = request.identifier or ('1' if request.demo and request.generate_assist else '20000')
+        result['_self_label'] = labels.get(str(int(owner))) if owner else None
     result['assistance'] = assistance
     result.update(mode=request.mode, source=source, demo=request.demo, seconds=round(time.perf_counter()-started,3))
     progress(95, '整理匿名统计与证据说明…')
@@ -168,7 +192,7 @@ def worker(request, events, start_gate=None, scratch_dir=None):
     if sys.stderr is None:
         sys.stderr = open(os.devnull, 'w')
     try:
-        result = analyze(request, lambda n, text: events.put(('progress',(n,text))), scratch_dir=scratch_dir)
+        result = analyze(request, lambda n, text: events.put(('progress',(n,text))), scratch_dir=scratch_dir, local_identity=True)
         events.put(('result',result))
     except InputError as exc:
         events.put(('error',str(exc)))

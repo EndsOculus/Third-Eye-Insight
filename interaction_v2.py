@@ -19,49 +19,56 @@ def lexical_overlap(a, b):
 def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP, coactive_bin=COACTIVE_BIN, observation=None, evidence_limit=20):
     if mode not in ('group', 'c2c') or session_gap <= 0 or coactive_bin <= 0 or not 0 <= evidence_limit <= 100000:
         raise ValueError('Invalid interaction parameters')
-    if len(records) > 50000 or sum(len(r.get('mentions', []))+bool(r.get('reply_to')) for r in records)>100000:
-        raise ValueError('Selection exceeds record/recipient evidence budget; narrow the dates')
-    raw_rows = len(records)
-    # Deduplicate only stable IDs in their conversation namespace. Conflicting IDs
-    # cannot provide directional evidence, nor resolve references.
-    identities, conflicts, duplicate_rows = {}, set(), 0
-    for r in records:
-        if not r.get('message_id'):
-            continue
-        key = (r.get('thread', r.get('peer', 'group')), r['message_id'])
-        signature = (r['sender'], r['timestamp'], r['text'], r.get('reply_to'), tuple(r['mentions']), r.get('forwarded', False), r['structure'])
-        if key in identities:
-            if identities[key] != signature:
-                conflicts.add(key)
-        else:
-            identities[key] = signature
-    # Excluded conflicting rows affect their participants, not every group pair.
-    # Include every version's sender/explicit targets and possible quoted authors;
-    # the global conflict count remains available separately as a quality warning.
-    source_authors = defaultdict(set)
-    for row in records:
-        if row.get('message_id'):
-            source_authors[(row.get('thread', row.get('peer', 'group')), row['message_id'])].add(row['sender'])
-    conflict_users = set()
-    for row in records:
-        thread = row.get('thread', row.get('peer', 'group'))
-        if (thread, row.get('message_id')) in conflicts:
-            conflict_users.add(row['sender'])
-            if row['structure'] == 'known':
-                conflict_users.update(row['mentions'])
-                if row.get('reply_to'):
-                    conflict_users.update(source_authors.get((thread, row['reply_to']), ()))
-    unique, seen = [], set()
-    for r in records:
-        key = (r.get('thread', r.get('peer', 'group')), r.get('message_id'))
-        if r.get('message_id') and key in conflicts:
-            continue
-        if r.get('message_id') and key in seen:
-            duplicate_rows += 1
-            continue
-        seen.add(key)
-        unique.append(r)
-    records = sorted(unique, key=lambda r: (r['timestamp'], r.get('message_id') or '', r.get('order', 0)))
+    streamed = getattr(records, 'prepared', False)
+    if streamed:
+        raw_rows = records.raw_rows
+        conflicts = range(records.conflicts)
+        duplicate_rows = records.duplicate_rows
+        conflict_users = records.conflict_users
+    else:
+        if sum(len(r.get('mentions', []))+bool(r.get('reply_to')) for r in records)>100000:
+            raise ValueError('Selection exceeds record/recipient evidence budget; narrow the dates')
+        raw_rows = len(records)
+        # Deduplicate only stable IDs in their conversation namespace. Conflicting IDs
+        # cannot provide directional evidence, nor resolve references.
+        identities, conflicts, duplicate_rows = {}, set(), 0
+        for r in records:
+            if not r.get('message_id'):
+                continue
+            key = (r.get('thread', r.get('peer', 'group')), r['message_id'])
+            signature = (r['sender'], r['timestamp'], r['text'], r.get('reply_to'), tuple(r['mentions']), r.get('forwarded', False), r['structure'])
+            if key in identities:
+                if identities[key] != signature:
+                    conflicts.add(key)
+            else:
+                identities[key] = signature
+        # Excluded conflicting rows affect their participants, not every group pair.
+        # Include every version's sender/explicit targets and possible quoted authors;
+        # the global conflict count remains available separately as a quality warning.
+        source_authors = defaultdict(set)
+        for row in records:
+            if row.get('message_id'):
+                source_authors[(row.get('thread', row.get('peer', 'group')), row['message_id'])].add(row['sender'])
+        conflict_users = set()
+        for row in records:
+            thread = row.get('thread', row.get('peer', 'group'))
+            if (thread, row.get('message_id')) in conflicts:
+                conflict_users.add(row['sender'])
+                if row['structure'] == 'known':
+                    conflict_users.update(row['mentions'])
+                    if row.get('reply_to'):
+                        conflict_users.update(source_authors.get((thread, row['reply_to']), ()))
+        unique, seen = [], set()
+        for r in records:
+            key = (r.get('thread', r.get('peer', 'group')), r.get('message_id'))
+            if r.get('message_id') and key in conflicts:
+                continue
+            if r.get('message_id') and key in seen:
+                duplicate_rows += 1
+                continue
+            seen.add(key)
+            unique.append(r)
+        records = sorted(unique, key=lambda r: (r['timestamp'], r.get('message_id') or '', r.get('order', 0)))
     self_id = str(self_id)
     users = {r['sender'] for r in records}
     if mode == 'c2c':
@@ -78,23 +85,24 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
         if key not in pairs:
             pairs[key] = dict(a=key[0], b=key[1], messages=Counter(), rounds=Counter(),
                               response_rounds=0, mention_rounds=0, reply_links=0, bidirectional_sessions=0,
-                              sessions=0, response_seconds=[], overlap=[], days=defaultdict(set),
+                              sessions=0, response_seconds=records.new_list() if streamed else [], overlap=records.new_list() if streamed else [], days=defaultdict(records.new_set if streamed else set),
                               replies=Counter(), responses=Counter(), mentions=Counter(),
                               session_directions=set(), last=None, last_sender=None, last_kind=None,
                               last_response=None, duplicates=0, texts=set(), forwarded=0, states={}, examples=[])
         return pairs[key]
     def event(a, b, row, kind, source=None, turn_snapshot=None):
+        if streamed: records.check()
         if a == b:
             return
         p = pair(a, b)
-        state = p['states'].setdefault(row.get('thread', row.get('peer','group')), dict(last=None, last_sender=None, texts=set(), session_directions=set()))
+        state = p['states'].setdefault(row.get('thread', row.get('peer','group')), dict(last=None, last_sender=None, texts=records.new_set() if streamed else set(), session_directions=set()))
         ts = row['timestamp']
         new_session = state['last'] is None or (ts-state['last']).total_seconds() > session_gap
         if new_session:
             p['sessions'] += 1
             state['session_directions'] = set()
             state['last_sender'] = None
-            state['texts'] = set()
+            state['texts'] = records.new_set() if streamed else set()
         new_round = new_session or state['last_sender'] != a
         if turn_snapshot is not None:
             new_round = (turn_snapshot.get('last') is None
@@ -172,15 +180,19 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
     unresolved = 0
     unresolved_users = set()
     if mode == 'c2c':
-        threads = defaultdict(list)
-        for r in records:
-            if r['peer'] != self_id and r['sender'] in (self_id, r['peer']):
-                threads[(r['peer'],r.get('thread',r['peer']))].append(r)
+        if streamed:
+            thread_items = records.iter_threads()
+        else:
+            threads = defaultdict(list)
+            for r in records:
+                if r['peer'] != self_id and r['sender'] in (self_id, r['peer']):
+                    threads[(r['peer'],r.get('thread',r['peer']))].append(r)
+            thread_items = threads.items()
         from itertools import groupby
-        for (peer, thread_key), thread in threads.items():
+        for (peer, thread_key), thread in thread_items:
             previous = None
             for ts, batch_iter in groupby(thread,key=lambda r:r['timestamp']):
-                batch = sorted(batch_iter,key=lambda r:(r['sender'],r.get('message_id') or '',r.get('order',0)))
+                batch = sorted(records.bounded_batch(batch_iter) if streamed else batch_iter,key=lambda r:(r['sender'],r.get('message_id') or '',r.get('order',0)))
                 ambiguous = len({r['sender'] for r in batch}) > 1
                 entries = []
                 for r in batch:
@@ -197,8 +209,12 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
                     previous = None
     else:
         # Duplicate source IDs are ambiguous; never guess which message was quoted.
-        lookup = {(r.get('thread', r.get('peer', 'group')), r['message_id']): r for r in records if r.get('message_id')}
-        pending=[]
+        if streamed:
+            from streaming_store import Lookup
+            lookup = Lookup(records)
+        else:
+            lookup = {(r.get('thread', r.get('peer', 'group')), r['message_id']): r for r in records if r.get('message_id')}
+        pending=records.pending() if streamed else []
         for r in records:
             if r['structure'] != 'known':
                 continue
@@ -216,11 +232,15 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
             for target, (kind, source) in targets.items():
                 pending.append((r['sender'], target, r, kind, source))
         from itertools import groupby
-        pending.sort(key=lambda e:(e[2]['timestamp'],e[2].get('thread',e[2].get('peer','group')),e[0],e[1],e[2].get('message_id') or ''))
-        for timestamp, batch in groupby(pending,key=lambda e:e[2]['timestamp']):
-            dispatch_batch(list(batch))
+        if streamed:
+            for batch in pending.batches():
+                dispatch_batch(batch)
+        else:
+            pending.sort(key=lambda e:(e[2]['timestamp'],e[2].get('thread',e[2].get('peer','group')),e[0],e[1],e[2].get('message_id') or ''))
+            for timestamp, batch in groupby(pending,key=lambda e:e[2]['timestamp']):
+                dispatch_batch(list(batch))
 
-    bins, days, source_counts, known_counts = defaultdict(set), defaultdict(set), Counter(), Counter()
+    bins, days, source_counts, known_counts = defaultdict(records.new_set if streamed else set), defaultdict(records.new_set if streamed else set), Counter(), Counter()
     epoch = __import__('datetime').datetime(1970, 1, 1)
     for r in records:
         u = r['sender']
@@ -270,9 +290,9 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
                         messages_a=na, messages_b=nb, common_active_days=len(pair_days),
                         source_messages_a=na if mode=='c2c' else source_counts[a], source_messages_b=nb if mode=='c2c' else source_counts[b],
                         one_way_fraction=abs(ra-rb)/(ra+rb) if ra+rb else None,
-                        median_response_seconds=median(p['response_seconds']) if p['response_seconds'] else None,
+                        median_response_seconds=(p['response_seconds'].median() if streamed else median(p['response_seconds'])) if p['response_seconds'] else None,
                         latency_samples=len(p['response_seconds']),
-                        lexical_overlap_mean=sum(p['overlap'])/len(p['overlap']) if p['overlap'] else None,
+                        lexical_overlap_mean=(p['overlap'].total if streamed else sum(p['overlap']))/len(p['overlap']) if p['overlap'] else None,
                         lexical_samples=len(p['overlap']),
                         coactive_bins=len(bins[a] & bins[b]) if mode == 'group' else None,
                         common_neighbors=len(neighbors[a] & neighbors[b]) if mode == 'group' else None,
@@ -289,5 +309,5 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
                 coverage=dict(structured_rows=sum(known_counts.values()), total_rows=len(records), raw_rows=raw_rows,
                               duplicate_rows=duplicate_rows, conflicting_ids=len(conflicts),
                               unknown_rows=sum(r['structure']!='known' for r in records), unresolved_references=unresolved,
-                              simultaneous_rows=sum(records[i]['timestamp']==records[i-1]['timestamp'] for i in range(1,len(records)))),
+                              simultaneous_rows=records.simultaneous if streamed else sum(records[i]['timestamp']==records[i-1]['timestamp'] for i in range(1,len(records)))),
                 validity='Real-data measurement validity has not been established; synthetic tests are structural checks.')

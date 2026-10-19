@@ -37,7 +37,8 @@ def test_date_pushdown_limit_and_readonly(tmp_path):
         c.execute('DELETE FROM group_msg_table')
         c.executemany('INSERT INTO group_msg_table VALUES (?,?,?,?,?,?)',[(str(i),str(1+i%2),'2',99,1767225600+i*2,'hello') for i in range(50001)])
     before=hashlib.sha256(path.read_bytes()).hexdigest()
-    with pytest.raises(ValueError,match='50,000'):extract_interactions(path,99)
+    with pytest.raises(ValueError,match='Explicit caller'):extract_interactions(path,99,max_rows=50000)
+    assert len(extract_interactions(path,99)[0])==50001
     result=analyze(Request(db=str(path),identifier='99',start='2026-01-02',end='2026-01-02'))
     assert result['rows']==21201 and not result['source']['truncated']
     assert hashlib.sha256(path.read_bytes()).hexdigest()==before

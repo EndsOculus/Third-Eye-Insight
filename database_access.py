@@ -222,14 +222,22 @@ class CipherConnection:
             raise
 
     def query(self, sql, params=(), unlock=False):
+        rows = []
+        size = 0
+        for row in self.iter_query(sql, params, unlock):
+            size += sum(len(str(value).encode("utf-8")) for value in row.values())
+            if size > 96 * 1024 * 1024:
+                raise DatabaseError("result_limit")
+            rows.append(row)
+        return rows
+
+    def iter_query(self, sql, params=(), unlock=False):
         if params:
             raise DatabaseError("query")
         if self.cancelled():
             raise DatabaseError("cancelled")
         self.deadline = time.monotonic() + QUERY_SECONDS
         statement = ctypes.c_void_p()
-        rows = []
-        size = 0
         try:
             rc = self.lib.sqlite3_prepare_v2(
                 self.db, sql.encode(), -1, ctypes.byref(statement), None
@@ -248,7 +256,7 @@ class CipherConnection:
             while True:
                 rc = self.lib.sqlite3_step(statement)
                 if rc == 101:
-                    return rows
+                    return
                 if rc != 100:
                     if self.cancelled():
                         raise DatabaseError("cancelled")
@@ -256,10 +264,11 @@ class CipherConnection:
                         raise DatabaseError("timeout")
                     raise _error(rc, unlock)
                 row = {}
+                size = 0
                 for i, name in enumerate(names):
                     length = self.lib.sqlite3_column_bytes(statement, i)
                     size += length
-                    if size > 96 * 1024 * 1024 or len(rows) > 50000:
+                    if size > 64 * 1024:
                         raise DatabaseError("result_limit")
                     raw = self.lib.sqlite3_column_text(statement, i)
                     row[name] = (
@@ -269,7 +278,7 @@ class CipherConnection:
                             "utf-8", errors="replace"
                         )
                     )
-                rows.append(row)
+                yield row
         finally:
             if statement:
                 self.lib.sqlite3_finalize(statement)
@@ -297,11 +306,15 @@ class PlainConnection:
         )
 
     def query(self, sql, params=()):
+        return list(self.iter_query(sql, params))
+
+    def iter_query(self, sql, params=()):
         if self.cancelled():
             raise DatabaseError("cancelled")
         self.deadline = time.monotonic() + QUERY_SECONDS
         try:
-            return [dict(r) for r in self.db.execute(sql, params)]
+            for row in self.db.execute(sql, params):
+                yield dict(row)
         except sqlite3.Error as exc:
             if self.cancelled():
                 raise DatabaseError("cancelled") from None
