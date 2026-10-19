@@ -1,14 +1,14 @@
 # Attribution and third-party notices
 
-## Original project license and authorship
+## Project license and authorship
 
-The root [LICENSE](LICENSE) restores the original MIT text byte-for-byte from commit `9965821` (initial commit). The same text also appeared at `old_beta2_tmp/Third-Eye-Insight-Beta2.0.0/LICENSE` in commit `ae8cc9c`; that temporary tree was removed in `2d44d85`. Its copyright remains **Copyright (c) 2025 Ends_Oculus**. The historical README at `2d44d85` and published Beta2.4 stated MIT in both language sections. No replacement license, new copyright holder or changed year is introduced.
+Third Eye Insight is distributed under the [MIT License](LICENSE), with copyright **2025 Ends_Oculus**. The project author is [EndsOculus](https://github.com/EndsOculus); contributors are credited in the Git history.
 
-The public repository identifies EndsOculus as its contributor; individual work remains attributed by Git history. The README's original Touhou Project / Komeiji Koishi name inspiration is retained without carrying forward unsupported claims about measuring real relationships. No third-party character artwork is bundled.
+The project name draws inspiration from Touhou Project's Komeiji Koishi. The source distribution contains no third-party character artwork.
 
-## Preserved acknowledgements
+## Acknowledgements
 
-All nine acknowledgements from the historical Chinese/English README are retained, without removing the historical external-service credit:
+Thanks to the following projects and services:
 
 - Pandas — https://pandas.pydata.org/
 - NumPy — https://numpy.org/
@@ -20,9 +20,13 @@ All nine acknowledgements from the historical Chinese/English README are retaine
 - SciPy — https://www.scipy.org/
 - DeepSeek API — https://api.deepseek.com/
 
-DeepSeek API belongs to the historical optional report route, not the current default desktop/CLI. Acknowledgement of a service is not a grant to redistribute that service or its models.
+DeepSeek API was used for reports in earlier versions. The current desktop and default CLI do not call that service.
 
-## Dependency license check
+## License provenance
+
+The LICENSE text matches initial commit `9965821` and the copy at `old_beta2_tmp/Third-Eye-Insight-Beta2.0.0/LICENSE` in `ae8cc9c`. The temporary tree was removed in `2d44d85`. The README at `2d44d85` and published Beta2.4 also identified MIT as the project license. The copyright holder, year and license terms are unchanged.
+
+## Dependency licenses
 
 The following is a record of locally installed distribution metadata inspected on 2026-10-19. Generic BSD/Apache/PSF labels below are exactly the metadata's level of specificity, not a claim that every bundled subcomponent has one uniform license. Consult the actual distribution's license/notice files before redistributing its binaries. This source release does not bundle third-party dependency binaries, model weights or the optional llama.cpp/CUDA runtime.
 
@@ -44,4 +48,4 @@ The following is a record of locally installed distribution metadata inspected o
 | idna | 3.20 | BSD-3-Clause |
 | scikit-learn | 1.8.0 | BSD-3-Clause |
 
-This checks direct Python distributions, not every transitive/native component or optional model license. Project MIT terms do not relicense dependencies, models, CUDA libraries, services, names or artwork. Model/runtime reuse requires its own applicable terms; no rights to redistribute those resources are asserted here.
+This table covers direct Python distributions. Transitive dependencies, native components, models and runtimes have their own license and notice files. Their terms also apply when using or redistributing them; the project MIT license does not replace those terms.
