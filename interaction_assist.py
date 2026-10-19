@@ -63,7 +63,7 @@ def topic_candidates(records, encoder=None):
         reason = None
         if not r.get('message_id') or id_counts[(thread,r.get('message_id'))] != 1:
             reason = 'missing_or_ambiguous_source_id'
-        elif r.get('reply_to') or r.get('mentions'):
+        elif r.get('reply_to') or r.get('mentions') or r.get('native_quote_present'):
             reason = 'explicit_or_unresolved_metadata_use_rules_only'
         elif r.get('forwarded'):
             reason = 'forwarded_content_not_attributed'

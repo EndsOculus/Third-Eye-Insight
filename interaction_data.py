@@ -161,6 +161,9 @@ def extract_interactions(db_path, identifier, mode='group', start='', end='', ma
                 except (UnicodeError, ValueError):
                     pass
             payload = decode_payload(raw)
+            if source_format == 'nt' and row['payload_type'] == 'blob' and row['payload_hex'] is not None:
+                from native_payload import decode_native_text
+                payload.update(decode_native_text(bytes.fromhex(row['payload_hex'])))
             if source_format == 'tei' and isinstance(row['metadata'], str) and raw is not None:
                 try:
                     metadata = json.loads(row['metadata'])
@@ -177,7 +180,9 @@ def extract_interactions(db_path, identifier, mode='group', start='', end='', ma
                                order=index, **payload))
         return result, dict(selected_rows=len(rows), invalid_time=invalid_time, invalid_sender=invalid_sender,
                             start=start or None, end=end or None, timezone='Asia/Shanghai', truncated=False,
-                            source=source_format)
+                            source=source_format,
+                            native_text_rows=sum(r.get('native_text_status')=='parsed' for r in result),
+                            native_quote_rows=sum(r.get('native_quote_present',False) for r in result))
     finally:
         if conn is not None:
             conn.close()

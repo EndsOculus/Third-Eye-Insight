@@ -303,13 +303,14 @@ class Desktop(ttk.Frame):
 
     @staticmethod
     def row_values(row):
-        count = str(row['response_rounds'])
-        if row['evidence'] == 'coverage_unknown':
-            count = '≥ '+count if row['response_rounds'] else '未知'
+        unknown = row['evidence'] == 'coverage_unknown'
+        def count(key):
+            value = row[key]
+            return ('≥ '+str(value) if value else '未知') if unknown else str(value)
         imbalance = row.get('one_way_fraction')
-        return (row['a'], row['b'], count, row['bidirectional_sessions'],
-                f"{row['source_messages_a']} / {row['source_messages_b']}", row['common_active_days'],
-                '未定义' if imbalance is None else f"{imbalance:.0%}", EVIDENCE[row['evidence']])
+        return (row['a'], row['b'], count('response_rounds'), count('bidirectional_sessions'),
+                f"{row['source_messages_a']} / {row['source_messages_b']}", count('common_active_days'),
+                '未知' if unknown else ('未定义' if imbalance is None else f"{imbalance:.0%}"), EVIDENCE[row['evidence']])
 
     def selected_row(self):
         selection = self.table.selection()
@@ -342,32 +343,44 @@ class Desktop(ttk.Frame):
         scrollbar.pack(side='right',fill='y')
         view.pack(side='left',fill='both', expand=True)
         view.configure(yscrollcommand=scrollbar.set)
+        unknown = row['evidence'] == 'coverage_unknown'
+        def count(key):
+            number = row.get(key, 0)
+            return ('≥ '+str(number) if number else '未知') if unknown else str(number)
         def value(key, unit=''):
-            return '未定义 / 无有效样本' if row.get(key) is None else str(round(row[key], 4))+unit
+            if row.get(key) is None:
+                return '未知 / 无已观测样本' if unknown else '未定义 / 无有效样本'
+            prefix = '仅已观测样本 ' if unknown and key != 'coactive_bins' else ''
+            return prefix+str(round(row[key], 4))+unit
         obs = self.result.get('observation', {})
         cov = self.result.get('coverage', {})
         source = self.result.get('source', {})
         text = (f"{row['a']} ↔ {row['b']} · {EVIDENCE[row['evidence']]}\n\n"
-                f"回应轮次 {row['response_rounds']}；定向轮次 {row['directed_rounds']}（A {row['rounds_a']} / B {row['rounds_b']}）\n"
-                f"双向会话 {row['bidirectional_sessions']} / 会话 {row['sessions']}；消息 A {row['messages_a']} / B {row['messages_b']}\n"
+                f"回应轮次 {count('response_rounds')}；定向轮次 {count('directed_rounds')}（A {count('rounds_a')} / B {count('rounds_b')}）\n"
+                f"双向会话 {count('bidirectional_sessions')} / 会话 {count('sessions')}；消息 A {count('messages_a')} / B {count('messages_b')}\n"
                 f"去重发言 A {row.get('source_messages_a', 0)} / B {row.get('source_messages_b', 0)}（群聊为全选区，私聊仅该对象）\n"
-                f"共同活跃日 {row['common_active_days']}；单向程度 {value('one_way_fraction')}（|A轮次−B轮次| / 总轮次）\n"
-                f"明确引用链接 {row['reply_links']}；@ 轮次 {row['mention_rounds']}（@ 不等于已回应）\n"
-                f"响应间隔中位数 {value('median_response_seconds', ' 秒')}；有效样本 {row['latency_samples']}\n"
-                f"文本词面重合 {value('lexical_overlap_mean')}；有效样本 {row['lexical_samples']}（非语义/情感判定）\n"
+                f"共同活跃日 {count('common_active_days')}；单向程度 {value('one_way_fraction')}（|A轮次−B轮次| / 总轮次）\n"
+                f"明确引用链接 {count('reply_links')}；@ 轮次 {count('mention_rounds')}（@ 不等于已回应）\n"
+                f"方向性回应 A {count('response_rounds_a')} / B {count('response_rounds_b')}；引用链接 A {count('reply_links_a')} / B {count('reply_links_b')}\n"
+                f"@ 轮次 A {count('mention_rounds_a')} / B {count('mention_rounds_b')}；不算已回应\n"
+                f"延迟类别：{'群聊明确引用' if self.result.get('mode')=='group' else '私聊换人候选'}\n"
+                f"响应间隔中位数 {value('median_response_seconds', ' 秒')}；有效样本 {count('latency_samples')}\n"
+                f"文本词面重合 {value('lexical_overlap_mean')}；有效样本 {count('lexical_samples')}（非语义/情感判定）\n"
                 f"低置信共现时间格 {value('coactive_bins')}；共同定向邻居 {value('common_neighbors')}（均不增加回应数）\n"
-                f"会话内同人重复文本 {row['repeated_messages']}；转发标记 {row['forwarded_messages']}（原始条数保留）\n\n"
+                f"会话内同人重复文本 {count('repeated_messages')}；转发标记 {count('forwarded_messages')}（原始条数保留）\n\n"
                 f"请求日期：{obs.get('requested_start') or '未指定'} 至 {obs.get('requested_end') or '未指定'}（结束日包含）\n"
                 f"实际覆盖：{obs.get('actual_start') or '无'} 至 {obs.get('actual_end') or '无'}，北京时间\n"
                 f"会话间隔阈值 {obs.get('session_gap_seconds', 21600)} 秒；共现格 {obs.get('coactive_bin_seconds', 300)} 秒\n"
                 f"原始选区记录 {source.get('selected_rows', 0)}；排除 {source.get('excluded_rows', 0)}；重复 ID {cov.get('duplicate_rows', 0)}；冲突 ID {cov.get('conflicting_ids', 0)}\n"
                 f"未知结构 {cov.get('unknown_rows', 0)}；未解析引用 {cov.get('unresolved_references', 0)}；同刻邻接 {cov.get('simultaneous_rows', 0)}\n"
+                f"原生正文已解析 {source.get('native_text_rows', 0)}；引用缓存标记 {source.get('native_quote_rows', 0)}（目标未知）\n"
                 f"无效时间 {source.get('invalid_time', 0)}；无效发送方向 {source.get('invalid_sender', 0)}\n\n"
-                "群聊只认已解析的结构引用；普通 @文字不能证明目标。当前原生 NT 二进制结构尚未解码，不能据未知零推断没有互动。\n"
+                "群聊只认已解析的结构引用；普通 @文字不能证明目标。原生 NT 仅有限正文/引用缓存标记可读，引用目标与 @ 尚未知。\n"
                 "私聊换人仅是观察到的回应候选，不代表语义回应。跨会话或同刻记录不计算回复延迟。\n"
                 "样本不足阈值：少于 3 次回应或少于 2 个双向会话；这是描述提示，不是统计置信保证。\n"
                 "无亲密度总分、夜间奖励或自动权重。真实数据测量效度尚未验证。")
         text += '\n\n规则证据样例（每对最多 20 条；R 为选区输入行编号，非原生 ID；不显示正文）：\n'
+        text += '覆盖不足时：未知不等于 0；≥ 表示已观测下限；比例/延迟仅针对已观测样本。\n'
         for example in row.get('evidence_examples', []):
             text += f"消息 {example['message_id'] or '无稳定ID'} → 来源 {example['source_message_id'] or '无'}；{example['sender']} → {example['target']}；{example['kind']}\n"
         assistance = self.result.get('assistance', {})

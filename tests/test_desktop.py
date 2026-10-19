@@ -123,3 +123,32 @@ def test_layout_keeps_table_and_pagination_inside_window(size):
     finally:
         app.after_cancel(app.poll_id)
         root.destroy()
+
+
+def test_unknown_directional_cells_are_not_plain_zero():
+    row=next(r for r in analyze(Request(demo=True))['pairs'] if r['evidence']=='coverage_unknown')
+    values=Desktop.row_values(row)
+    assert values[2]==values[3]==values[5]==values[6]=='未知'
+    positive=dict(row,response_rounds=3,bidirectional_sessions=1,common_active_days=1)
+    values=Desktop.row_values(positive)
+    assert values[2]=='≥ 3' and values[3]==values[5]=='≥ 1'
+
+
+def test_unknown_details_state_limits_and_direction_categories():
+    root=tk.Tk();root.withdraw();app=Desktop(root)
+    try:
+        app.result=analyze(Request(demo=True))
+        app.rows=[r for r in app.result['pairs'] if r['evidence']=='coverage_unknown']
+        app.filter_rows();app.show_details();root.update()
+        def walk(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from walk(child)
+        view=next(w for w in walk(root) if isinstance(w,tk.Text))
+        text=view.get('1.0','end')
+        assert '双向会话 未知' in text and '共同活跃日 未知' in text
+        assert '方向性回应 A 未知 / B 未知' in text
+        assert '延迟类别：群聊明确引用' in text
+        assert '≥ 表示已观测下限' in text
+    finally:
+        app.after_cancel(app.poll_id);root.destroy()

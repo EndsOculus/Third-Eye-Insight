@@ -83,3 +83,6 @@ __pycache__/
 !tests/assist_holdout.jsonl
 !AI_ASSISTANCE.md
 !tests/__init__.py
+
+!native_payload.py
+!tests/test_native_payload.py

@@ -18,3 +18,10 @@ Actual existing local model, measured on 2026-10-19:
 | Rules + topic candidates | 3 | 2 / 1 | 0.667 | 0.333 | 0.750 |
 
 The added candidate for a group announcement selected another acknowledging participant instead of the announcer. Interleaved topics, sarcasm and comfort examples abstained. Higher recall here came with an actual false attribution. This tiny synthetic set establishes neither real-chat accuracy nor general improvement; no calibrated confidence or production validity is claimed. Direct counts are unchanged by AI. Evaluation uses the actual rule engine and source attribution, not a simulated baseline. Unlabeled records must not be silently treated as negative labels.
+
+
+## Remaining stage gaps
+
+Native text in supported 40800/45101 BLOB paths now reaches the local encoder; 47423 cached quotes are excluded from body, and cache-bearing messages abstain from recipient attribution. Unknown layouts still provide no text. Binary fixtures and a recording mock encoder verify the extraction boundary; they do not validate real-message classification.
+
+This is candidate assistance only. Named topics/clustering, generated evidence explanations, reliable response-target reasoning and question/answer, comfort, argument, sarcasm or emotion classifiers remain unimplemented. A future generative-model/runtime choice requires separate user approval; no model was installed and no conversation was sent externally in this release. Only already approved resources may be reused later. The existing holdout metrics above are not evidence that those missing features exist.

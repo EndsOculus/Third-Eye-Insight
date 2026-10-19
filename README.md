@@ -12,7 +12,7 @@ Windows / Python 3.13：`uv sync --locked`。双击 **Start Insight.vbs**，正�
 
 ## 数据与解释
 
-原生 NT SQLite 只读访问；未实现原生二进制引用/@ 解码，因此群聊方向证据可能显示“未知”，绝不把文字 @ 或共同活跃当成回复。另支持明确选择的结构导入表。日期在 SQL 中先筛选再检查数量上限，按 Asia/Shanghai 日历日理解。上限 50,000 行、300 成员、100,000 个收件人证据；超过上限需缩小范围，不静默截断。
+原生 NT SQLite 只读访问；现支持有限 BLOB 正文提取并排除引用缓存，但尚未验证引用目标/@ 收件人映射，因此群聊方向证据可能显示“未知”，绝不把文字 @ 或共同活跃当成回复。另支持明确选择的结构导入表。日期在 SQL 中先筛选再检查数量上限，按 Asia/Shanghai 日历日理解。上限 50,000 行、300 成员、100,000 个收件人证据；超过上限需缩小范围，不静默截断。
 
 SQLCipher 仅在用户勾选时读取本地私有配置；不要提交配置或原始库。测试未接触真实聊天库。输入路径/账号控件仍包含用户输入，截图前应切回演示并清空输入。结果匿名化是展示保护，不保证统计无法被关联识别。
 
@@ -24,6 +24,6 @@ SQLCipher 仅在用户勾选时读取本地私有配置；不要提交配置或�
 
 `train.py --help` 列出同一 v2 核心的参数，`run_train.ps1` 转发参数。输出仅新建文件，拒绝覆盖。旧 PostgreSQL、报告与图片导出不属于当前默认 CLI；遗留模块只保留作兼容源码与回归参考。
 
-`uv sync --locked --group dev` 后运行 `.venv\Scripts\python.exe -m pytest tests -q`。测试、性能口径和限制见 [VALIDATION.md](VALIDATION.md)、[BENCHMARK_V2.md](BENCHMARK_V2.md)、[SECURITY.md](SECURITY.md)。
+`uv sync --locked --group dev` 后运行 `.venv\Scripts\python.exe -m pytest tests -q`。Windows 若连续重建 Tk 解释器报初始化错误，请按 CI 工作流将 tests/test_desktop.py 的每个节点置于独立进程运行，保留全部断言。测试、性能口径和限制见 [VALIDATION.md](VALIDATION.md)、[BENCHMARK_V2.md](BENCHMARK_V2.md)、[SECURITY.md](SECURITY.md)。
 
 回滚基线为 `a942818ad2bdbc46543fbc956f8eca2e4a520a65`；源码 Git bundle 留在本机交付工作区，未入仓。建议新建恢复分支，不用 hard reset 覆盖未提交工作。

@@ -35,6 +35,22 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
                 conflicts.add(key)
         else:
             identities[key] = signature
+    # Excluded conflicting rows affect their participants, not every group pair.
+    # Include every version's sender/explicit targets and possible quoted authors;
+    # the global conflict count remains available separately as a quality warning.
+    source_authors = defaultdict(set)
+    for row in records:
+        if row.get('message_id'):
+            source_authors[(row.get('thread', row.get('peer', 'group')), row['message_id'])].add(row['sender'])
+    conflict_users = set()
+    for row in records:
+        thread = row.get('thread', row.get('peer', 'group'))
+        if (thread, row.get('message_id')) in conflicts:
+            conflict_users.add(row['sender'])
+            if row['structure'] == 'known':
+                conflict_users.update(row['mentions'])
+                if row.get('reply_to'):
+                    conflict_users.update(source_authors.get((thread, row['reply_to']), ()))
     unique, seen = [], set()
     for r in records:
         key = (r.get('thread', r.get('peer', 'group')), r.get('message_id'))
@@ -63,10 +79,11 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
             pairs[key] = dict(a=key[0], b=key[1], messages=Counter(), rounds=Counter(),
                               response_rounds=0, mention_rounds=0, reply_links=0, bidirectional_sessions=0,
                               sessions=0, response_seconds=[], overlap=[], days=defaultdict(set),
+                              replies=Counter(), responses=Counter(), mentions=Counter(),
                               session_directions=set(), last=None, last_sender=None, last_kind=None,
                               last_response=None, duplicates=0, texts=set(), forwarded=0, states={}, examples=[])
         return pairs[key]
-    def event(a, b, row, kind, source=None):
+    def event(a, b, row, kind, source=None, turn_snapshot=None):
         if a == b:
             return
         p = pair(a, b)
@@ -79,6 +96,13 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
             state['last_sender'] = None
             state['texts'] = set()
         new_round = new_session or state['last_sender'] != a
+        if turn_snapshot is not None:
+            new_round = (turn_snapshot.get('last') is None
+                         or (ts-turn_snapshot['last']).total_seconds() > session_gap
+                         or turn_snapshot.get('last_sender') != a)
+            if not new_round:
+                state['replied_in_turn'] = turn_snapshot.get('replied_in_turn', False)
+                state['mentioned_in_turn'] = turn_snapshot.get('mentioned_in_turn', False)
         if new_round:
             p['rounds'][a] += 1
             state['replied_in_turn'] = False
@@ -93,23 +117,16 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
         p['forwarded'] += int(row.get('forwarded', False))
         if kind == 'mention' and not state.get('mentioned_in_turn',False):
             p['mention_rounds'] += 1
+            p['mentions'][a] += 1
             state['mentioned_in_turn'] = True
         if kind == 'reply':
             p['reply_links'] += 1
+            p['replies'][a] += 1
         response = (kind == 'reply' and not state.get('replied_in_turn',False)) or (new_round and (kind == 'private' and not new_session and state['last_sender'] is not None and state['last_sender'] != a and ts > state['last']))
         if response:
             state['replied_in_turn'] = True
             p['response_rounds'] += 1
-            if source is not None:
-                delta = (ts-source['timestamp']).total_seconds()
-                # Explicit cross-session references remain observed reply links,
-                # but never contribute an across-session latency.
-                if 0 < delta <= session_gap:
-                    p['response_seconds'].append(delta)
-                    if not row.get('forwarded') and not source.get('forwarded'):
-                        overlap = lexical_overlap(row['text'], source['text'])
-                        if overlap is not None:
-                            p['overlap'].append(overlap)
+            p['responses'][a] += 1
             before = len(state['session_directions'])
             state['session_directions'].add(a)
             # Private conversation's prior turn is evidence of the other side,
@@ -118,7 +135,39 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
                 state['session_directions'].add(b)
             if before < 2 and len(state['session_directions']) == 2:
                 p['bidirectional_sessions'] += 1
+        # Explicit-link samples are independent of turn deduplication/order.
+        if source is not None and (kind == 'reply' or response):
+            delta = (ts-source['timestamp']).total_seconds()
+            # Explicit cross-session references remain observed reply links,
+            # but never contribute an across-session latency.
+            if 0 < delta <= session_gap:
+                p['response_seconds'].append(delta)
+                if (not row.get('forwarded') and not source.get('forwarded')
+                            and not row.get('lexical_ambiguous') and not source.get('lexical_ambiguous')):
+                    overlap = lexical_overlap(row['text'], source['text'])
+                    if overlap is not None:
+                        p['overlap'].append(overlap)
         state['last'], state['last_sender'] = ts, a
+
+    def dispatch_batch(entries):
+        # Each sender is compared with the pair/thread state BEFORE this time
+        # batch. Sender IDs never impose a causal order within simultaneous data.
+        grouped = defaultdict(list)
+        for entry in entries:
+            a, b, row, kind, source = entry
+            key = (tuple(sorted((a,b), key=lambda u:(len(u),u))), row.get('thread',row.get('peer','group')))
+            grouped[key].append(entry)
+        for (key, thread), batch in grouped.items():
+            p = pair(*key)
+            snapshot = dict(p['states'].get(thread, {}))
+            senders = defaultdict(list)
+            for entry in batch:
+                senders[entry[0]].append(entry)
+            for sender_entries in senders.values():
+                for index, entry in enumerate(sender_entries):
+                    event(*entry, turn_snapshot=snapshot if index == 0 else None)
+            if len(senders) > 1:
+                p['states'][thread]['last_sender'] = None
 
     unresolved = 0
     unresolved_users = set()
@@ -133,12 +182,18 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
             for ts, batch_iter in groupby(thread,key=lambda r:r['timestamp']):
                 batch = sorted(batch_iter,key=lambda r:(r['sender'],r.get('message_id') or '',r.get('order',0)))
                 ambiguous = len({r['sender'] for r in batch}) > 1
+                entries = []
                 for r in batch:
-                    event(r['sender'], peer if r['sender'] == self_id else self_id, r,
-                          'private_ambiguous' if ambiguous else 'private', previous)
+                    if len(batch) > 1:
+                        r = dict(r, lexical_ambiguous=True)
+                    entries.append((r['sender'], peer if r['sender'] == self_id else self_id, r,
+                                    'private_ambiguous' if ambiguous else 'private', previous))
                     previous = r
+                dispatch_batch(entries)
+                if len(batch) > 1:
+                    # Timestamp is usable, but no unique prior message/body exists.
+                    previous = dict(previous, message_id=None)
                 if ambiguous:
-                    pair(self_id,peer)['states'][thread_key]['last_sender'] = None
                     previous = None
     else:
         # Duplicate source IDs are ambiguous; never guess which message was quoted.
@@ -163,14 +218,7 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
         from itertools import groupby
         pending.sort(key=lambda e:(e[2]['timestamp'],e[2].get('thread',e[2].get('peer','group')),e[0],e[1],e[2].get('message_id') or ''))
         for timestamp, batch in groupby(pending,key=lambda e:e[2]['timestamp']):
-            participants=defaultdict(set)
-            for a,b,row,kind,source in batch:
-                event(a,b,row,kind,source)
-                key=(tuple(sorted((a,b),key=lambda u:(len(u),u))),row.get('thread',row.get('peer','group')))
-                participants[key].add(a)
-            for (key,thread),senders in participants.items():
-                if len(senders)>1:
-                    pairs[key]['states'][thread]['last_sender']=None
+            dispatch_batch(list(batch))
 
     bins, days, source_counts, known_counts = defaultdict(set), defaultdict(set), Counter(), Counter()
     epoch = __import__('datetime').datetime(1970, 1, 1)
@@ -203,7 +251,7 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
             covered=private_known[b if a==self_id else a]
             available=na+nb
         coverage = covered/available if available else 0.0
-        if mode == 'group' and (coverage < 1 or a in unresolved_users or b in unresolved_users or conflicts):
+        if mode == 'group' and (coverage < 1 or a in unresolved_users or b in unresolved_users or a in conflict_users or b in conflict_users):
             evidence = 'coverage_unknown'
         elif not p['response_rounds']:
             evidence = 'no_observed_response'
@@ -214,6 +262,10 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
         pair_days = (p['days'][a] & p['days'][b])
         out.append(dict(a=a, b=b, evidence_examples=p['examples'], response_rounds=p['response_rounds'],
                         directed_rounds=ra+rb, rounds_a=ra, rounds_b=rb,
+                        response_rounds_a=p['responses'][a], response_rounds_b=p['responses'][b],
+                        reply_links_a=p['replies'][a], reply_links_b=p['replies'][b],
+                        mention_rounds_a=p['mentions'][a], mention_rounds_b=p['mentions'][b],
+                        latency_kind='explicit_group_reply' if mode=='group' else 'private_sender_transition',
                         bidirectional_sessions=p['bidirectional_sessions'], sessions=p['sessions'],
                         messages_a=na, messages_b=nb, common_active_days=len(pair_days),
                         source_messages_a=na if mode=='c2c' else source_counts[a], source_messages_b=nb if mode=='c2c' else source_counts[b],
