@@ -95,3 +95,7 @@ __pycache__/
 !tests/test_local_process.py
 !tests/generation_holdout.jsonl
 !GENERATION.md
+
+!USAGE.md
+!THIRD_PARTY.md
+!docs/images/desktop-demo.png

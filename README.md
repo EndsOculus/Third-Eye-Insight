@@ -1,72 +1,83 @@
 # 恋之瞳 · Third Eye Insight
 
-本地聊天互动证据查看器。新版桌面以匿名成员、可追溯行号、互动次数和结构覆盖展示结果；不再输出亲密度、情感或关系强弱总分。
+一个在 Windows 本机运行的聊天互动证据查看器。用清晰的桌面界面浏览谁与谁有过互动、观察到了什么，以及哪些信息仍然未知。
 
-## 安装与启动
+**本地分析 · 原始库只读 · AI 默认关闭**
 
-支持 Windows / Python 3.13；先准备 Python 3.13 和 `uv`，然后在项目目录执行：
+[快速开始](#快速开始) · [使用方法](#使用方法) · [详细文档](#详细文档) · [致谢](#致谢) · [许可证](#许可证)
+
+## 主要功能
+
+- **桌面浏览**：群聊与私聊、日期筛选、匿名成员搜索、分页和证据详情。
+- **可解释的互动指标**：回应轮次、双向会话、发言量和有效样本延迟；不输出亲密度或情感总分。
+- **流畅操作**：后台分析、进度提示、取消与关闭；正常启动不弹命令行窗口。
+- **可选本地 AI**：向量话题候选与生成实验，默认关闭，不改变直接统计。
+
+![恋之瞳桌面：合成记录的互动列表与证据状态](docs/images/desktop-demo.png)
+
+*截图仅含程序生成的合成记录，不是真实聊天。*
+
+## 快速开始
+
+准备 **Windows、Python 3.13 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)**。有 Git 时，在 PowerShell 中执行：
 
 ```powershell
+git clone https://github.com/EndsOculus/Third-Eye-Insight.git
+cd Third-Eye-Insight
 uv sync --locked
 ```
 
-安装依赖可能联网；正常分析不会下载模型或调用外部 AI。安装完成后双击 **Start Insight.vbs**，主窗口和后台任务均使用 pythonw，不弹命令行窗口。如果系统禁用 VBScript，可为以下命令创建快捷方式：
+也可从 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases) 下载源码包，解压后在项目目录运行 `uv sync --locked`。源码包不是免安装程序；安装依赖可能联网，模型不随源码提供。
+
+随后双击 **Start Insight.vbs**，点击“体验合成演示”即可先了解界面，无需数据库或模型。系统禁用 VBScript 时，使用：
 
 ```powershell
 .venv\Scripts\pythonw.exe desktop.py
 ```
 
-调试入口为 `debug_desktop.ps1`。建议先点“体验合成演示”：界面支持群聊/私聊、日期筛选、匿名成员搜索、每页 100 行、图表与滚动证据详情；900×700 窗口保留结果和分页区。耗时工作在后台进程执行，可取消或关闭，重复点击不会启动重复任务。
+升级时先保留自己的数据库和私有配置，再将新版源码解压到新目录并重新安装依赖，不覆盖原始数据。命令行、SQLCipher 与可选模型配置见[使用指南](USAGE.md)。
 
-## 输入与 v2 指标
+## 使用方法
 
-选择只读 SQLite 数据库及对应格式：原生 NT 或显式结构导入。群聊填写群号，私聊填写自己的 QQ；日期按 Asia/Shanghai 理解，先 SQL 筛选再检查上限。限制为 50,000 行、300 成员、100,000 条原始定向证据，超限提示缩小范围，不静默截断。SQLCipher 仅在显式勾选时读取本机私有配置；不要提交配置或修改原始库。
+1. 选择数据库与输入格式：原生 NT 或结构导入。
+2. 选择群聊或私聊，填写群号或自己的 QQ，按需设置日期和排除项。
+3. 点击“开始分析”，用搜索和分页浏览；双击记录查看证据与统计口径。
+4. 如需辅助，显式选择“向量候选”或“生成实验”。资源缺失时会提示不可用，不自动下载。
 
-v2 展示回应轮次、双向会话、定向引用/@ 次数、发言量、共同活跃和有效样本延迟。群聊明确引用与私聊发言转换使用不同口径；同话题或同时出现不自动算作回应。原生 NT 只支持有限正文与引用缓存标记解码，引用目标/@ 收件人映射尚未验证，因此方向数据可能是“未知”。
+**未知不等于零。** 信息不完整时显示“未知”或“已观测”次数；同话题、共同活跃也不等于明确回应。v2 指标描述观察结果，不能证明关系好坏或真实情感。
 
-**未知不等于零。** 结构不完整时，正数显示“已观测 N”，也不是下限：补全事件可能合并原先分开的轮次或会话。延迟和比例仅针对有效已观察样本。指标不能证明关系好坏或真实情感。完整定义与导入格式见 [INTERACTION_V2.md](INTERACTION_V2.md)。
+## 限制与隐私
 
-## 可选本地 AI：默认关闭
+- AI 仍是实验性候选，合成评测中出现过错误归因；真实聊天效果尚未验证，不应把结果视为确定结论。
+- 原生 NT 的引用目标与 @ 收件人尚未完整解析，加密私有库未经过真实数据验证。数据规模和模型选区有限制，详见专题文档。
+- 正常分析只读原始库、不调用外部 AI。结果使用匿名成员和行号，但输入控件仍显示所填路径与账号；分享截图前请清空或切换合成演示。
+- 不要上传数据库、聊天导出、私有配置、日志或凭据。匿名化不能保证无法关联识别。
 
-辅助选择器有三种模式，AI 候选始终不改变直接统计：
+## 详细文档
 
-| 模式 | 配置与用途 | 边界 |
-|---|---|---|
-| 辅助关闭 | 默认；无需模型 | 只计算直接证据 |
-| 向量候选 | 仅使用已存在的 multilingual MiniLM 本地快照，位置与固定版本见 [AI_ASSISTANCE.md](AI_ASSISTANCE.md) | 最多 2,000 条；相似度不是回应事实或置信概率 |
-| 生成实验 | 点“生成设置”选择仓库外的本地 JSON，显式指定运行时、模型和 CUDA DLL 目录 | 最多 12 条；实验性对象、粗话题、行为类型候选及匿名证据说明 |
+| 想了解什么 | 文档 |
+|---|---|
+| 安装、升级、CLI、SQLCipher 与本地模型配置 | [使用指南](USAGE.md) |
+| v2 指标、未知覆盖与结构导入 | [互动口径](INTERACTION_V2.md) |
+| 向量候选与生成实验的限制、评测和配置 | [向量辅助](AI_ASSISTANCE.md) / [生成实验](GENERATION.md) |
+| 测试、性能测量与恢复 | [验证记录](VALIDATION.md) / [性能口径](BENCHMARK_V2.md) |
+| 隐私边界与检查覆盖 | [安全说明](SECURITY.md) |
+| 版本变化 | [更新记录](CHANGELOG.md) |
 
-生成配置只包含三个字段，值必须是已有资源的绝对本地路径；以下是占位示例，不是可直接运行的配置：
+## 作者与名称来源
 
-```json
-{
-  "runtime": "C:/approved-runtime/llama-cli.exe",
-  "model": "C:/approved-models/Qwen3-4B-Q4_K_M.gguf",
-  "dll_dir": "C:/approved-cuda-dlls"
-}
-```
+项目作者：[EndsOculus](https://github.com/EndsOculus)；原始版权署名为 **Ends_Oculus**。其他贡献以[提交记录](https://github.com/EndsOculus/Third-Eye-Insight/commits/main/)为准。
 
-仅支持代码中核验指纹的 llama.cpp b11723 Windows CUDA 12.4 运行时与 Qwen3-4B-Q4_K_M；不自动获取资源，缺失或指纹不符会显示不可用。配置路径仅留在当前桌面会话；CLI 可用 `--generate-assist --generation-config <local-config.json>`。运行时子进程使用离线参数和 loopback 主机设置；这是本地运行边界，不是完整网络隔离认证。详细资源指纹、输入/时间限制与命令见 [GENERATION.md](GENERATION.md)。
+名称灵感沿用原 README：来自《东方 Project》角色古明地恋（Komeiji Koishi）与“第三只眼”的意象。此名称来源不代表对真实关系或情感的测量能力。
 
-**实际合成评估并不证明真实聊天有效性。** 独立 16 例中，生成模式提出 12 个对象候选，8 对、4 错；话题正确 6/16，行为类型正确 9/16，并误判一个合成指令注入案例。生成说明是模型所选类别加验证后的行号模板，不展示自由生成正文，也不声称识别真实情感。8 条合成 GUI 演示约 20 秒完成；这不是通用速度承诺或优化倍数。向量模式的独立评测也出现过错误归因。
+## 致谢
 
-## 隐私与安全
+保留原 README 的全部项目致谢：
 
-原始数据库只读，不强行解锁、不关闭用户应用、不写原始库。正常 v2 分析不调用外部 AI、不自动下载模型、不持久化聊天向量；生成运行时不接收工具执行权限。界面中经过校验的模型结果、固定事件日志和导出结果不包含聊天正文或原始账号/消息 ID，只保留匿名成员与选区行号。固定事件日志保存在被忽略的 `output/logs/desktop.log`。
+[Pandas](https://pandas.pydata.org/) · [NumPy](https://numpy.org/) · [Matplotlib](https://matplotlib.org/) · [Seaborn](https://seaborn.pydata.org/) · [NetworkX](https://networkx.org/) · [PyTorch](https://pytorch.org/) · [SentenceTransformers](https://www.sbert.net/) · [SciPy](https://www.scipy.org/) · [DeepSeek API](https://api.deepseek.com/)
 
-输入控件仍会显示用户填写的路径和账号；截图前切换合成演示并清空输入。时间、次数和匿名标识仍可能被关联识别，匿名化不是绝对保证。数据库/WAL/SHM、聊天导出、私有配置、模型、日志和私人截图不可提交；测试不应把真实聊天发送给外部模型。当前验证使用合成数据，未验证真实加密私聊库。检查范围与剩余风险见 [SECURITY.md](SECURITY.md)。
+DeepSeek API 的致谢对应历史报告功能；当前默认桌面与 CLI 不调用该外部服务。第三方组件各自的许可及历史归属说明见[第三方说明](THIRD_PARTY.md)。
 
-## CLI、测试与恢复
+## 许可证
 
-默认 CLI 与桌面共享同一 v2 核心，输出仅允许新建文件：
-
-```powershell
-.venv\Scripts\python.exe train.py --demo --output demo-result.json
-.venv\Scripts\python.exe train.py --help
-uv sync --locked --group dev
-.venv\Scripts\python.exe -m pytest tests -q --ignore=tests/test_desktop.py
-```
-
-Windows 的 Tk 工作流按 [.github/workflows/tests.yml](.github/workflows/tests.yml) 将每个 `tests/test_desktop.py` 测试节点放在独立进程运行，全部执行、不跳过。最新版验证含真实事件循环、取消/关闭、中文与空格路径、只读提取、44,850 对合成结果的分页搜索、实际本地模型运行和独立只读评审。详见 [VALIDATION.md](VALIDATION.md)、[BENCHMARK_V2.md](BENCHMARK_V2.md)、[GENERATION.md](GENERATION.md) 和 [CHANGELOG.md](CHANGELOG.md)。
-
-旧 PostgreSQL、外部评分和图片导出不在当前默认 CLI 路径，历史模块保留供溯源。生成实验之前的恢复提交为 `b137c152b4d3727c8a9cbdf31703b83c369ade53`；更早的源码恢复点为 `a942818ad2bdbc46543fbc956f8eca2e4a520a65`。本机已验证的源码 bundle 保存在仓库外。建议新建恢复分支，不用 hard reset 覆盖未提交工作。
+本项目沿用 **[MIT License](LICENSE)**，保留原文版权声明 `Copyright (c) 2025 Ends_Oculus`。第三方依赖、模型和运行时遵循各自许可，不因本项目采用 MIT 而改变。
