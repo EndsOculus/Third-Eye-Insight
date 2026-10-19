@@ -1,6 +1,6 @@
 # 使用指南
 
-本地聊天互动证据查看器。新版桌面以匿名成员、可追溯行号、互动次数和结构覆盖展示结果；不再输出亲密度、情感或关系强弱总分。
+本指南介绍数据库选择、互动统计、本地模型配置和命令行用法。首次使用可先阅读 [README](README.md) 的快速开始。
 
 ## 安装与启动
 
@@ -48,7 +48,7 @@ v2 展示回应轮次、双向会话、定向引用/@ 次数、发言量、共�
 
 仅支持代码中核验指纹的 llama.cpp b11723 Windows CUDA 12.4 运行时与 Qwen3-4B-Q4_K_M；不自动获取资源，缺失或指纹不符会显示不可用。配置路径仅留在当前桌面会话；CLI 可用 `--generate-assist --generation-config <local-config.json>`。运行时子进程使用离线参数和 loopback 主机设置；这是本地运行边界，不是完整网络隔离认证。详细资源指纹、输入/时间限制与命令见 [GENERATION.md](GENERATION.md)。
 
-**实际合成评估并不证明真实聊天有效性。** 独立 16 例中，生成模式提出 12 个对象候选，8 对、4 错；话题正确 6/16，行为类型正确 9/16，并误判一个合成指令注入案例。生成说明是模型所选类别加验证后的行号模板，不展示自由生成正文，也不声称识别真实情感。8 条合成 GUI 演示约 20 秒完成；这不是通用速度承诺或优化倍数。向量模式的独立评测也出现过错误归因。
+在独立的 16 例合成测试中，生成模式提出 12 个对象候选，8 对、4 错；话题正确 6/16，行为类型正确 9/16，并误判一个合成指令注入案例。生成说明由模型选择的类别和对应行号组成；这些结果仅供参考，不能用于判断真实感情。8 条合成 GUI 演示约 20 秒完成；实际耗时随硬件和输入变化。向量模式的独立评测也出现过错误归因。
 
 ## 隐私与安全
 
@@ -67,6 +67,6 @@ uv sync --locked --group dev
 .venv\Scripts\python.exe -m pytest tests -q --ignore=tests/test_desktop.py
 ```
 
-Windows 的 Tk 工作流按 [.github/workflows/tests.yml](.github/workflows/tests.yml) 将每个 `tests/test_desktop.py` 测试节点放在独立进程运行，全部执行、不跳过。最新版验证含真实事件循环、取消/关闭、中文与空格路径、只读提取、44,850 对合成结果的分页搜索、实际本地模型运行和独立只读评审。详见 [VALIDATION.md](VALIDATION.md)、[BENCHMARK_V2.md](BENCHMARK_V2.md)、[GENERATION.md](GENERATION.md) 和 [CHANGELOG.md](CHANGELOG.md)。
+Windows 下请参照 [.github/workflows/tests.yml](.github/workflows/tests.yml)，将 `tests/test_desktop.py` 的各测试节点分别放在独立进程运行，避免反复初始化 Tk 导致错误。测试结果与性能数据见 [VALIDATION.md](VALIDATION.md)、[BENCHMARK_V2.md](BENCHMARK_V2.md)、[GENERATION.md](GENERATION.md) 和 [CHANGELOG.md](CHANGELOG.md)。
 
-旧 PostgreSQL、外部评分和图片导出不在当前默认 CLI 路径，历史模块保留供溯源。生成实验之前的恢复提交为 `b137c152b4d3727c8a9cbdf31703b83c369ade53`；更早的源码恢复点为 `a942818ad2bdbc46543fbc956f8eca2e4a520a65`。本机已验证的源码 bundle 保存在仓库外。建议新建恢复分支，不用 hard reset 覆盖未提交工作。
+旧 PostgreSQL、外部评分和图片导出不在当前默认 CLI 路径，历史模块保留供溯源。生成实验之前的恢复提交为 `b137c152b4d3727c8a9cbdf31703b83c369ade53`；更早的源码恢复点为 `a942818ad2bdbc46543fbc956f8eca2e4a520a65`。恢复时可从对应提交新建分支。建议新建恢复分支，不用 hard reset 覆盖未提交工作。
