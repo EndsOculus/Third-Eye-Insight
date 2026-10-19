@@ -55,34 +55,19 @@ def test_system_rows_cannot_hide_truncation(tmp_path):
     assert result.empty
     assert result.attrs["truncated"]
 
-def test_c2c_sqlite_desktop_encodes_extracted_messages(tmp_path, monkeypatch):
+def test_v2_private_sqlite_does_not_require_embedding_model(tmp_path, monkeypatch):
     from desktop_core import Request, analyze
+    from tests.interaction_fixtures import msg, make_db
     import embedding_cache
-    path = tmp_path / "私聊 synthetic space.db"
-    with sqlite3.connect(path) as conn:
-        conn.execute('CREATE TABLE c2c_msg_table ("40033" TEXT, "40030" TEXT, "40093" TEXT, "40800" TEXT, "40050" INTEGER, "40011" INTEGER, "40012" INTEGER)')
-        conn.executemany('INSERT INTO c2c_msg_table VALUES (?,?,?,?,?,?,?)', [
-            (str(20000+i%2), "20001", "Synthetic", "synthetic reply " + str(i%3), 1767225600+i*30, 2, 1)
-            for i in range(12)
-        ])
-    conn.close()
-    before = hashlib.sha256(path.read_bytes()).hexdigest()
-    extracted = extract_chat_data(str(path), 20000, mode="c2c", cipher_config={})
-    assert len(extracted) == 12
-    assert set(extracted.sender_id) == {"20000", "20001"}
-    assert "text_embedding" not in extracted.columns
-    calls = []
-    class Model:
-        def encode(self, texts, **kwargs):
-            calls.append(list(texts))
-            return np.tile(np.array([1., 0., 1.], dtype=np.float32), (len(texts), 1))
-    monkeypatch.setattr(embedding_cache, "load_sentence_transformer", lambda *a, **k: Model())
-    monkeypatch.setattr(embedding_cache, "EMBEDDING_CACHE_DIR", str(tmp_path / "cache"))
-    result = analyze(Request(db=str(path), identifier="20000", mode="c2c"))
-    assert result["rows"] == 12 and len(result["pairs"]) == 1
-    assert calls  # Actual attach_text_embeddings runs; no prefilled frame column.
-    assert result["pairs"][0][3] > .75
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+    path=tmp_path/'synthetic private.sqlite'
+    make_db(path,[msg(1+i%2,i*30,str(i)) for i in range(12)],source_format='nt',mode='c2c',identifier=1)
+    before=hashlib.sha256(path.read_bytes()).hexdigest()
+    def forbidden(*args,**kwargs):
+        raise AssertionError('v2 baseline must not load a model or real embedding cache')
+    monkeypatch.setattr(embedding_cache,'attach_text_embeddings',forbidden)
+    result=analyze(Request(db=str(path),identifier='1',mode='c2c'))
+    assert result['rows']==12 and result['pairs'][0]['response_rounds']==11
+    assert hashlib.sha256(path.read_bytes()).hexdigest()==before
 
 @pytest.mark.parametrize("peers", [(20001,), (20001, 20002)])
 def test_c2c_query_parameter_order_and_names(tmp_path, peers):

@@ -1,3 +1,11 @@
+## Interaction v2 — 2026-10-19
+
+- Replace default weighted intimacy scores with auditable direct rounds, bidirectional sessions, raw counts, coverage and evidence aliases; remove unsupported certainty.
+- Fix cross-session/private-pair leakage, same-timestamp ordering, source conflicts, date-limit ordering and untrusted native IDs. Conservative native metadata handling and explicit separate import metadata prevent body text from inventing replies.
+- Share desktop and CLI core; retain hidden launch, bounded background processing, cancellation, search/pagination and compact accessible evidence details.
+- Add default-off offline topic candidates with abstention and explicit limitations; actual synthetic holdout exposes a false attribution. No relationship/emotion classifier claim.
+- Add counterexample, held-out, privacy-boundary and UI regression tests. See current validation and benchmark documents. Earlier entries below describe historical behavior only.
+
 ## Visual acceptance fixes — 2026-10-19
 
 - Real Tk screenshots revealed table/footer clipping; compact the form and chart, reserve result table height and keep search/pagination visible at 900x700.

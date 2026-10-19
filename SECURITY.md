@@ -1,27 +1,9 @@
 # Security and privacy scope
 
-Desktop stays offline. SQLite/SQLCipher handles are read-only. Startup header stripping/deletion removed. Pickle caches never deserialized. JSON caches and fixed-event rotating logs remain ignored. Added tests contain no actual messages, names, secrets or private screenshots.
+Normal desktop/CLI analysis uses read-only source access. No original DB writes, forced unlocks or user application termination. Normal operation does not call external AI, download models or persist message embeddings. Optional local AI uses only an existing model. SQLCipher credentials are read only when explicitly enabled; never publish private config.
 
-## Dependency verification — 2026-10-19 UTC
+Results suppress body text and native account/message identifiers in favor of anonymous members and selected-row aliases. Input controls still show user-entered paths and identifiers. Dates, counts and aliases can remain identifying in context; anonymization is not a guarantee. Logs contain fixed event codes; private caches, outputs and logs remain ignored. Legacy modules are retained but are outside the default v2 route.
 
-Queried repository Dependabot API and GitHub Advisory Database. Old emails were not treated as current facts. Installed anyio 4.13.0, sentence-transformers 5.3.0, Pillow 12.1.1 and transformers 5.4.0 were still covered by open alerts.
+Release review scans the explicit staged allowlist and reachable local Git snapshots for database/archive/cache/log/private-config filenames, common token/private-key patterns, hard-coded secrets and personal paths. Synthetic fixtures are reviewed as synthetic. This is bounded automated and manual inspection, not proof that zero sensitive information exists. Backups, model files, screenshots and raw results are not committed. Only synthetic application-owned screenshots are eligible for Library delivery.
 
-Constraints now require anyio >=4.14.2,<4.15; sentence-transformers >=5.6,<6; Pillow >=12.3,<13; transformers >=5.10,<5.11; setuptools >=83,<84; idna >=3.15. PyTorch >=2.8,<2.9 replaces an unshippable local 2.6 CUDA wheel reference. Lock changes include required transitives. Only project environment changed, not system Python/drivers.
-
-References:
-
-- https://github.com/advisories/GHSA-jhr6-gm9c-rqjv (local model loading, fixed 5.6.0)
-- https://github.com/advisories/GHSA-82r6-8w77-94w6 (AnyIO TLS hostname, fixed 4.14.2)
-- https://github.com/advisories/GHSA-jjj6-mw9f-p565 (Pillow PDF decompression, fixed 12.3.0)
-- https://github.com/advisories/GHSA-xrqw-3rrv-vx5w (Transformers path traversal, fixed 5.10.0)
-- https://github.com/advisories/GHSA-x9r9-c232-4q39 lists affected 4.49.0 through 5.8.1 and no formally named patched version. Selected version is outside that range; this is not a claim of a designated patch. Desktop forces offline loading with trust_remote_code=False and does not use custom generation.
-
-Versions alone are not an absolute guarantee. Default-branch alerts can stay open until merge/rescan; this change does not dismiss them.
-
-## Publication checks
-
-Explicit file allowlist, staged diff and outgoing commits reviewed. Exclude databases/WAL/SHM, caches, logs, exports, archives, backups, config.json, credentials, user paths and private samples. Historical tracked snapshots scanned without printing secret candidates; no history rewriting. Pattern scans cannot prove zero sensitive content.
-
-CLI exports may contain private data; optional AI reporting sends it externally. They are outside the desktop offline boundary. Treat configuration and all output as private.
-
-Local scan covered the staged snapshot plus both existing local historical commits (44 unique file versions after CI was added). Seven historical README path hits were generic placeholder examples; staged credential/path/prohibited-file scan had no findings. No history was rewritten. This coverage is pattern-based and does not extend to every remote ref or all possible secret formats.
+If sensitive history is found, stop publication and report; do not rewrite history or force push without separate authorization. Recovery source bundle remains outside the repository. Dependencies and inherited legacy modules can contain unrelated risks; this work does not certify all third-party packages.

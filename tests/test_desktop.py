@@ -27,9 +27,8 @@ def test_demo_metrics_and_empty():
     result = analyze(Request(demo=True))
     assert result["rows"] == 1200
     assert len(result["pairs"]) == 66
-    assert all(0 <= r[2] <= 1 for r in result["pairs"])
-    with pytest.raises(InputError):
-        analyze(Request(demo=True, start="2027-01-01"))
+    assert all(r["response_rounds"] >= 0 and "score" not in r for r in result["pairs"])
+    assert analyze(Request(demo=True, start="2027-01-01"))["pairs"] == []
     private = analyze(Request(demo=True, mode="c2c"))
     assert len(private["pairs"]) == 11
 
@@ -52,7 +51,7 @@ def test_real_gui_lifecycle_and_pagination():
         pump(root, lambda: app.process is None)
         assert len(app.rows) == 66, app.status.get()
         # Maximum 300-member pair count, without inserting all rows into Tk.
-        app.rows = [(f"成员 {i:03d}", f"成员 {j:03d}", .5, .4, .5, .6) for i in range(300) for j in range(i+1,300)]
+        app.rows = [dict(app.rows[0], a=f"成员 {i:03d}", b=f"成员 {j:03d}") for i in range(300) for j in range(i+1,300)]
         app.filter_rows()
         assert len(app.filtered) == 44850
         assert len(app.table.get_children()) == PAGE_SIZE
@@ -83,7 +82,7 @@ def test_terminal_event_arriving_between_drain_and_exit(terminal):
         def close(self):
             pass
     events = Events()
-    row = ("成员 001", "成员 002", .5, .5, .5, .5)
+    row = analyze(Request(demo=True))["pairs"][0]
     payload = {"pairs": [row], "rows": 2, "users": 2, "seconds": .1, "demo": True} if terminal == "result" else "synthetic terminal error"
     class Process:
         def is_alive(self):

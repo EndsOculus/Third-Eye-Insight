@@ -137,7 +137,7 @@ def build_display_name_map(db_path: str, sender_ids, remote: bool = False, ciphe
     return result
 
 
-def _sqlcipher_query_status(db_path: str, query: str, config: dict, verbose: bool = True):
+def _sqlcipher_query_status(db_path: str, query: str, config: dict, verbose: bool = True, max_result_bytes: int | None = None):
     """使用 ctypes 调用 SQLCipher DLL 查询加密数据库，返回 (DataFrame, rc, errmsg)。"""
     dll_path = config.get('sqlcipher_dll', 'C:/msys64/mingw64/bin/libsqlcipher-0.dll')
     try:
@@ -246,6 +246,7 @@ def _sqlcipher_query_status(db_path: str, query: str, config: dict, verbose: boo
         return pd.DataFrame(), -1, last_errmsg
 
     rows = []
+    result_bytes = 0
     col_names = []
 
     CALLBACK = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_int,
@@ -253,6 +254,10 @@ def _sqlcipher_query_status(db_path: str, query: str, config: dict, verbose: boo
                                   ctypes.POINTER(ctypes.c_char_p))
 
     def _cb(_, ncols, values, cols):
+        nonlocal result_bytes
+        result_bytes += sum(len(values[i]) if values[i] else 0 for i in range(ncols))
+        if max_result_bytes is not None and result_bytes > max_result_bytes:
+            return 1  # Abort this read before accumulating an oversized result.
         if not col_names:
             for i in range(ncols):
                 col_names.append(cols[i].decode('utf-8') if cols[i] else f'col{i}')

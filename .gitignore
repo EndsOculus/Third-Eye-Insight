@@ -64,3 +64,22 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 !/.github/workflows/tests.yml
+
+# Interaction v2 release allowlist
+!interaction_data.py
+!interaction_v2.py
+!interaction_cli.py
+!evaluate_interactions.py
+!tests/test_interaction_v2.py
+!tests/test_interaction_holdout.py
+!tests/test_interaction_data.py
+!tests/interaction_fixtures.py
+!INTERACTION_V2.md
+!BENCHMARK_V2.md
+!annotation_template.jsonl
+
+!interaction_assist.py
+!tests/test_interaction_assist.py
+!tests/assist_holdout.jsonl
+!AI_ASSISTANCE.md
+!tests/__init__.py
