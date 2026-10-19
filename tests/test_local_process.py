@@ -39,7 +39,8 @@ def test_unread_pipe_does_not_block_cancellation(mode):
 
 def test_descendants_are_reaped(tmp_path):
     marker=tmp_path/'child.pid'
-    code='import subprocess,sys,time;from pathlib import Path;p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"]);Path(sys.argv[1]).write_text(str(p.pid));time.sleep(60)'
+    # Publish only a completed PID: cancellation may kill the writer as soon as marker exists.
+    code='import subprocess,sys,time;from pathlib import Path;p=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"]);marker=Path(sys.argv[1]);pending=marker.with_suffix(".pending");pending.write_text("");time.sleep(.05);pending.write_text(str(p.pid));pending.replace(marker);time.sleep(60)'
     with pytest.raises(ProcessFailure,match='cancelled'):
         run_contained([sys.executable,'-c',code,str(marker)],'synthetic',os.environ.copy(),timeout=10,
                       cancelled=lambda:marker.exists())
