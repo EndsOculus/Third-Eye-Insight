@@ -1,3 +1,7 @@
+## Beta2.6 / 2.6.0b1 — 2026-10-19
+
+Source-only prerelease of the modern Windows desktop and interaction v2. Start with `uv sync --locked`, then `Start Insight.vbs`; no executable, dependencies or models are bundled. Optional local vector/generation assistance remains default-off and experimental. Generation holdout: 8 correct / 4 wrong targets among 12 predictions; not validated real-chat or emotion inference. See README.md and GENERATION.md for installation, upgrade boundaries, limits and privacy. This release supersedes the historical v2.5 notes below; only the default v2 desktop/CLI behavior describes this release.
+
 ## Optional local generation — 2026-10-19
 
 - Add default-off, fingerprinted local model classification and target candidates with validated anonymous evidence, separate from direct counts. No downloads, external API calls or raw model output in results.
