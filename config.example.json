@@ -1,0 +1,1 @@
+{"encrypted": false, "db_file": "synthetic.db", "analysis_params": {"WINDOW_SIZE": 300, "BATCH_SIZE": 32, "N_THREADS": 1}}

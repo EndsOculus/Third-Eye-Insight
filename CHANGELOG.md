@@ -1,3 +1,51 @@
+## Optional local generation — 2026-10-19
+
+- Add default-off, fingerprinted local model classification and target candidates with validated anonymous evidence, separate from direct counts. No downloads, external API calls or raw model output in results.
+- Keep the UI responsive with bounded stdin/output and nested Windows process jobs; fix synchronous stdin writes that could block timeout/cancel and check total limits after the final inference.
+- Record the frozen independent synthetic holdout including four wrong attributions and limited topic/type accuracy. See GENERATION.md; no real-chat validity claim.
+- Verify actual GPU-backed synthetic GUI completion/cancel/close and independent process cleanup regressions.
+
+## Independent review corrections — 2026-10-19
+
+- Restrict conflicting-message quality warnings to affected participants. An unrelated group's conflicting ID no longer changes a clean pair's evidence status; preserve the global conflict count.
+- Regressions cover same-conversation unrelated members and every conflicting version's sender, mention target and quoted-source author.
+- Collect explicit-link delay samples independently of turn deduplication; omit private lexical samples without unique source/target bodies.
+- Compute simultaneous group/private turns from pre-batch state; sender renumbering cannot change counts. Expose direction-specific response/link/@ counts.
+- Display incomplete directional values as unknown or observed counts with incomplete-structure status, and explicitly distinguish group-reference and private-transition latency.
+- Parse bounded native 40800/45101 BLOB body elements, excluding 47423 cached quotes. Recipient fields remain unknown; preserve AI candidate-only scope.
+
+## Interaction v2 — 2026-10-19
+
+- Replace default weighted intimacy scores with auditable direct rounds, bidirectional sessions, raw counts, coverage and evidence aliases; remove unsupported certainty.
+- Fix cross-session/private-pair leakage, same-timestamp ordering, source conflicts, date-limit ordering and untrusted native IDs. Conservative native metadata handling and explicit separate import metadata prevent body text from inventing replies.
+- Share desktop and CLI core; retain hidden launch, bounded background processing, cancellation, search/pagination and compact accessible evidence details.
+- Add default-off offline topic candidates with abstention and explicit limitations; actual synthetic holdout exposes a false attribution. No relationship/emotion classifier claim.
+- Add counterexample, held-out, privacy-boundary and UI regression tests. See current validation and benchmark documents. Earlier entries below describe historical behavior only.
+
+## Visual acceptance fixes — 2026-10-19
+
+- Real Tk screenshots revealed table/footer clipping; compact the form and chart, reserve result table height and keep search/pagination visible at 900x700.
+- Add persistent synthetic-data identification and a visible progress-bar accent.
+- Add default/compact geometry regression tests; screenshots remain private Library deliverables.
+
+## Independent review fixes — 2026-10-19
+
+- Fix worker-exit race: drain final results/errors again after confirmed process exit, before closing its queue. Cancellation still skips potentially interrupted queue writes.
+- Remove random semantic rank jitter. Only observed finite pairs are ranked; missing interactions remain zero and ties share a deterministic midrank. This corrects scores in both desktop and CLI without changing the CLI interface.
+
+- Fix private-chat SQL placeholder binding: the self identifier now precedes peer identifiers, matching CASE then IN in the query.
+- Initialize offline embeddings for desktop private analysis as well as group analysis; preserve the existing cosine-plus-lexical metric rather than silently changing its meaning.
+- Reproduce failures using actual synthetic SQLite extraction; add single/multiple-peer extraction and desktop encoding regression tests without prefilled embeddings.
+
+## Desktop modernization — 2026-10-19
+
+- Add Tk desktop, pythonw launch, synthetic demo, validation, stage progress, cancellation, anonymous charts, search and pagination.
+- Preserve CLI; desktop does not invoke external AI or export private data.
+- Fix writable database handles, startup file deletion offer, pickle cache loading, truncated-result detection and exception cleanup.
+- Batch CPU inference in one model; tuple window iteration and vectorized nickname fallback. Synthetic performance details in VALIDATION.md.
+- Publish missing core modules/tests; replace local wheel lock and update bounded security dependencies.
+- Encrypted private data, GPU, external services and native screenshots not validated. See VALIDATION.md and SECURITY.md.
+
 # Release Notes
 
 [中文](#chinese-version) | [English](#english-version)
@@ -161,3 +209,7 @@
 - Core module import/basic invocation checks passed for `analysis_types.py`, `embedding_cache.py`, `metrics.py`, `reporting.py`, and `runtime_config.py`.
 - Group regression completed: group `8*3`, time range `2026/03/01`-`2026/03/31`, GPU + AI report enabled, outputs generated under `output/2026/04/09/group/8*3/`.
 - Focus consistency check passed: for focus user `2*7`, exported CSV contains only focus-related pairs (non-focus/non-focus pairs = 0).
+
+### Desktop visual refinement
+
+Flat white cards on a neutral backdrop, restrained body text, one purple primary action, clear section and statistics hierarchy, softer inputs, striped tables and explicit disabled states. Completed progress bars disappear. Both 1120x780 and 900x700 layouts were checked using real app-window captures with synthetic data.

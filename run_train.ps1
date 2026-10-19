@@ -1,5 +1,7 @@
 param(
-    [switch]$EnsureLocalTorch
+    [switch]$EnsureLocalTorch,
+    [Parameter(ValueFromRemainingArguments=$true)]
+    [string[]]$AnalysisArgs
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,6 +27,7 @@ if ($EnsureLocalTorch -and (Test-Path -LiteralPath $localTorchScript)) {
 }
 
 Write-Host "Running train.py with the existing .venv environment..."
-& $venvPython $trainScript
+if (-not $AnalysisArgs) { $AnalysisArgs = @("--help") }
+& $venvPython $trainScript @AnalysisArgs
 
 exit $LASTEXITCODE

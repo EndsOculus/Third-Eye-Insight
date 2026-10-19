@@ -100,6 +100,9 @@ def render_visualizations(args, identifier, out_dir, time_range_str, users, user
 
 
 def run_analysis():
+    raise RuntimeError("Legacy v1 scoring/report pipeline is retired. Use train.py for interaction v2.")
+
+def _legacy_run_analysis():
     logging.basicConfig(level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO), format="%(levelname)s %(message)s")
 
     cipher_config = load_cipher_config()
