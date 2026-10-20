@@ -1,6 +1,7 @@
 """Bounded, private, read-only database opening with explicit safe errors."""
 
 import ctypes
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -23,7 +24,8 @@ MESSAGES = {
     "dll_invalid": "配置的 DLL 不支持所需的 SQLCipher 接口。",
     "format": "文件不是可识别的 SQLite 或受支持的 NT 前缀数据库。",
     "unlock": "无法按本地密码与 cipher 参数解锁数据库；也可能是文件格式不符或头页损坏。未读取聊天。",
-    "corrupt": "数据库页面损坏，未返回部分统计。请使用完整且一致的数据库副本。",
+    "corrupt": "数据库结构无法读取，未返回部分统计。若为去前缀副本，请选择原始 NT 前缀文件；仍失败时再检查来源一致性。",
+    "compat_unsupported": "识别到 NT 保留页兼容需求，但当前平台、SQLCipher 版本或表结构不在已验证范围。未尝试修库或返回部分统计。",
     "schema": "数据库缺少所选格式所需的表或字段，请核对原生 NT / 结构导入选项。",
     "busy": "数据库正在使用或无法建立只读访问，请使用一致的离线副本；无需关闭 QQ。",
     "wal": "检测到非空 WAL / 回滚日志，本次未打开。请使用完整一致的离线副本，不要手动删除日志。",
@@ -48,14 +50,19 @@ def _stamp(path):
     return s.st_size, s.st_mtime_ns
 
 
-def _config(config):
+def _config(config, config_file=None):
+    if config is not None and config_file is not None:
+        raise DatabaseError("config_invalid")
+    if config_file is not None and not isinstance(config_file, (str, os.PathLike)):
+        raise DatabaseError("config_invalid")
     if config is None:
         try:
-            if not CONFIG_PATH.is_file():
+            config_path = Path(config_file) if config_file is not None else Path(os.environ.get("TEI_CONFIG_FILE", str(CONFIG_PATH)))
+            if not config_path.is_file():
                 raise DatabaseError("config_missing")
-            if CONFIG_PATH.stat().st_size > 65536:
+            if config_path.stat().st_size > 65536:
                 raise DatabaseError("config_invalid")
-            config = json.loads(CONFIG_PATH.read_text("utf-8-sig"))
+            config = json.loads(config_path.read_text("utf-8-sig"))
         except (OSError, ValueError) as exc:
             if isinstance(exc, DatabaseError):
                 raise
@@ -335,9 +342,11 @@ def _copy_payload(source, target, offset, cancelled, progress):
     started = time.monotonic()
     copied = 0
     last_progress = -1
+    digest = hashlib.sha256()
+    payload_digest = hashlib.sha256()
     try:
         with source.open("rb") as reader, target.open("xb") as writer:
-            reader.seek(offset)
+            digest.update(reader.read(offset))
             while chunk := reader.read(1024 * 1024):
                 if cancelled():
                     raise DatabaseError("cancelled")
@@ -346,6 +355,8 @@ def _copy_payload(source, target, offset, cancelled, progress):
                 if copied + len(chunk) > size or copied + len(chunk) > COPY_LIMIT:
                     raise DatabaseError("changed")
                 writer.write(chunk)
+                digest.update(chunk)
+                payload_digest.update(chunk)
                 copied += len(chunk)
                 current = 10 + int(15 * copied / max(size, 1))
                 if current != last_progress:
@@ -353,6 +364,42 @@ def _copy_payload(source, target, offset, cancelled, progress):
                     progress(current, "正在准备隔离的 NT 只读副本…")
     except OSError:
         raise DatabaseError("disk") from None
+    if copied != size:
+        raise DatabaseError("changed")
+    return digest.hexdigest(), payload_digest.hexdigest()
+
+
+def _compat_layout(source, offset, plain, cfg):
+    """Length alone never enables mapping; the child verifies NT schema too."""
+    if plain or offset != 1024:
+        return False
+    page = cfg["cipher_page_size"]
+    normal = 0x40000000 // page
+    shifted = (0x40000000 - offset) // page
+    if source.stat().st_size < offset + (normal + 1) * page:
+        return False
+    with source.open("rb") as stream:
+        stream.seek(offset + shifted * page)
+        reserved = stream.read(page)
+        stream.seek(offset + normal * page)
+        data = stream.read(page)
+    candidate = reserved == bytes(page) and len(data) == page and any(data)
+    if candidate and page != 4096:
+        raise DatabaseError("compat_unsupported")
+    return candidate
+
+
+def _source_hash(source, cancelled):
+    started = time.monotonic()
+    digest = hashlib.sha256()
+    with source.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            if cancelled():
+                raise DatabaseError("cancelled")
+            if time.monotonic() - started > COPY_SECONDS:
+                raise DatabaseError("timeout")
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @contextmanager
@@ -363,6 +410,8 @@ def open_database(
     scratch_dir=None,
     cancelled=lambda: False,
     progress=lambda n, t: None,
+    *,
+    config_file=None,
 ):
     source = Path(path)
     conn = None
@@ -388,7 +437,7 @@ def open_database(
             offset = 1024
         cfg = None
         if not plain:
-            cfg = _config(config)
+            cfg = _config(config, config_file)
             page = cfg["cipher_page_size"]
             if stamp[0] % page == 1024 and page > 1024:
                 offset = 1024
@@ -398,21 +447,32 @@ def open_database(
             # Manual SQLCipher is an override for opaque files, not a reason to break plaintext.
             progress(10, "检测到普通 SQLite，按只读明文打开。")
         selected = source
+        compatible = _compat_layout(source, offset, plain, cfg)
+        source_digest = payload_digest = None
         if offset:
             temporary = tempfile.TemporaryDirectory(
                 prefix="tei-payload-", dir=scratch_dir
             )
             selected = Path(temporary.name) / "payload.db"
-            _copy_payload(source, selected, offset, cancelled, progress)
+            source_digest, payload_digest = _copy_payload(source, selected, offset, cancelled, progress)
             if _stamp(source) != stamp:
                 raise DatabaseError("changed")
         progress(27, "正在核验只读数据库格式与本地解密配置…")
-        conn = (
-            PlainConnection(selected, cancelled)
-            if plain
-            else CipherConnection(selected, cfg, cancelled)
-        )
+        if compatible:
+            from isolated_database import IsolatedCipherConnection
+            progress(27, "已识别 NT 锁页布局，正在启动隔离只读兼容读取器；不修改数据库。")
+            conn = IsolatedCipherConnection(selected, cfg, cancelled)
+        else:
+            conn = (
+                PlainConnection(selected, cancelled)
+                if plain
+                else CipherConnection(selected, cfg, cancelled)
+            )
         conn.query("SELECT count(*) AS n FROM sqlite_master")
+        if source_digest is None:
+            source_digest = payload_digest = _source_hash(source, cancelled)
+        if _stamp(source) != stamp:
+            raise DatabaseError("changed")
         yield (
             conn,
             not plain,
@@ -420,6 +480,12 @@ def open_database(
                 "database_format": ("nt_prefix_" if offset else "")
                 + ("sqlite" if plain else "sqlcipher"),
                 "readonly": True,
+                "compatibility_mode": "nt_prefix_lock_page_v1" if compatible else "standard",
+                "reader_isolated": compatible,
+                "source_sha256": source_digest,
+                "payload_sha256": payload_digest,
+                "source_prefix_bytes": offset,
+                "compatibility_engine": list(conn.versions) if compatible else None,
             },
         )
         if _stamp(source) != stamp or any(

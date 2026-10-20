@@ -1,5 +1,6 @@
 """Responsive Tk desktop, with an isolated cancellable analysis process."""
 import logging
+import os
 import tempfile
 from logging.handlers import RotatingFileHandler
 import multiprocessing as mp
@@ -253,12 +254,12 @@ class Desktop(ttk.Frame):
         from desktop_core import worker
         context = mp.get_context("spawn")
         self.events = context.Queue()
-        gate=context.Event() if generation else None
+        gate=context.Event() if os.name == 'nt' or generation else None
         try:
             self.scratch = tempfile.TemporaryDirectory(prefix="tei-run-")
-            self.process = context.Process(target=worker, args=(request, self.events, gate, self.scratch.name), daemon=True)
+            self.process = context.Process(target=worker, args=(request, self.events, gate, self.scratch.name), daemon=gate is None)
             self.process.start()
-            if generation:
+            if gate is not None:
                 from local_process import WindowsJob
                 self.worker_job=WindowsJob()
                 self.worker_job.assign(self.process.pid)
@@ -335,6 +336,8 @@ class Desktop(ttk.Frame):
                     obs = payload.get("observation", {})
                     cov = payload.get("coverage", {})
                     source = payload.get("source", {})
+                    read_note = (" · NT 前缀兼容 / 隔离只读" if source.get("reader_isolated") else " · 标准只读")
+                    self.context.set("本地读取" + read_note if not payload.get("demo") else self.context.get())
                     self.summary.set(f"{payload['rows']:,} 条去重记录 · {payload['users']} 名成员 · {len(self.rows):,} 对 · {payload['seconds']:.2f} 秒\n"
                                      f"实际覆盖 {obs.get('actual_start') or '无'} 至 {obs.get('actual_end') or '无'} · 结构已知 {cov.get('structured_rows', 0)}/{cov.get('total_rows', 0)}")
                     assist = payload.get("assistance", {})
@@ -513,6 +516,8 @@ class Desktop(ttk.Frame):
                 "私聊换人仅是观察到的回应候选，不代表语义回应。跨会话或同刻记录不计算回复延迟。\n"
                 "样本不足阈值：少于 3 次回应或少于 2 个双向会话；这是描述提示，不是统计置信保证。\n"
                 "无亲密度总分、夜间奖励或自动权重。真实数据测量效度尚未验证。")
+        read_mode = 'NT 前缀兼容 / 隔离只读' if source.get('reader_isolated') else '标准只读'
+        text = (f"读取方式：{read_mode}\n来源 SHA-256：{source.get('source_sha256') or '合成演示 / 未提供'}\n\n" + text)
         text += '\n\n规则证据样例（每对最多 20 条；R 为选区输入行编号，非原生 ID；不显示正文）：\n'
         text += '结构不完整时：未知不等于 0；正数仅为已观测计数，不是下限。补全事件可能合并轮次/会话；比例和延迟也仅针对已观测样本。\n'
         for example in row.get('evidence_examples', []):
@@ -547,8 +552,11 @@ def main():
     import os
     os.chdir(Path(__file__).resolve().parent)
     mp.freeze_support()
-    # Ensure spawned workers also use pythonw, even from a debug console.
-    pythonw = Path(__import__("sys").executable).with_name("pythonw.exe")
+    # Use the actual interpreter, not a venv pythonw redirector selected from a
+    # python.exe host: the latter can invalidate multiprocessing Event handles.
+    # Spawn preparation retains this environment's module search path.
+    system = __import__("sys")
+    pythonw = Path(getattr(system, "_base_executable", system.executable)).with_name("pythonw.exe")
     if pythonw.exists():
         mp.set_executable(str(pythonw))
     log_dir = Path("output") / "logs"

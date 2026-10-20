@@ -101,6 +101,10 @@ __pycache__/
 !docs/images/desktop-demo.png
 
 !database_access.py
+!isolated_database.py
+!nt_readonly_demo.py
+!tests/test_isolated_database.py
+!NT_READONLY.md
 !tests/test_database_access.py
 
 !streaming_store.py
