@@ -25,6 +25,7 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
         conflicts = range(records.conflicts)
         duplicate_rows = records.duplicate_rows
         conflict_users = records.conflict_users
+        conflict_private = records.conflict_private
     else:
         if sum(len(r.get('mentions', []))+bool(r.get('reply_to')) for r in records)>100000:
             raise ValueError('Selection exceeds record/recipient evidence budget; narrow the dates')
@@ -50,14 +51,17 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
             if row.get('message_id'):
                 source_authors[(row.get('thread', row.get('peer', 'group')), row['message_id'])].add(row['sender'])
         conflict_users = set()
+        conflict_private = set()
         for row in records:
             thread = row.get('thread', row.get('peer', 'group'))
             if (thread, row.get('message_id')) in conflicts:
-                conflict_users.add(row['sender'])
+                conflict_users.add((thread, row['sender']))
+                if mode == 'c2c' and row['peer'] != str(self_id) and row['sender'] in (str(self_id), row['peer']):
+                    conflict_private.add(row['peer'])
                 if row['structure'] == 'known':
-                    conflict_users.update(row['mentions'])
+                    conflict_users.update((thread, u) for u in row['mentions'])
                     if row.get('reply_to'):
-                        conflict_users.update(source_authors.get((thread, row['reply_to']), ()))
+                        conflict_users.update((thread, u) for u in source_authors.get((thread, row['reply_to']), ()))
         unique, seen = [], set()
         for r in records:
             key = (r.get('thread', r.get('peer', 'group')), r.get('message_id'))
@@ -74,6 +78,7 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
     if mode == 'c2c':
         users.update(r['peer'] for r in records)
         users.add(self_id)
+        users.update(conflict_private)
     else:
         users.update(t for r in records if r['structure'] == 'known' for t in r['mentions'])
     if len(users) > 300:
@@ -256,9 +261,20 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
         for i, a in enumerate(users):
             for b in users[i+1:]:
                 pair(a, b)
+    user_threads = defaultdict(set)
+    for r in records:
+        thread = r.get('thread', r.get('peer', 'group'))
+        user_threads[r['sender']].add(thread)
+        if r['structure'] == 'known':
+            for target in r['mentions']:
+                user_threads[target].add(thread)
+    for thread, user in conflict_users:
+        user_threads[user].add(thread)
     # Private zero/one-way threads are present even without a reply.
     private_known=Counter()
     if mode=='c2c':
+        for peer in conflict_private:
+            pair(self_id, peer)
         for r in records:
             private_known[r['peer']] += r['structure']=='known'
     out = []
@@ -271,7 +287,10 @@ def analyze_records(records, mode='group', self_id='1', session_gap=SESSION_GAP,
             covered=private_known[b if a==self_id else a]
             available=na+nb
         coverage = covered/available if available else 0.0
-        if mode == 'group' and (coverage < 1 or a in unresolved_users or b in unresolved_users or a in conflict_users or b in conflict_users):
+        conflict_affected = (b if a == self_id else a) in conflict_private if mode == 'c2c' else any(
+            (thread, a) in conflict_users or (thread, b) in conflict_users
+            for thread in user_threads[a] & user_threads[b])
+        if conflict_affected or (mode == 'group' and (coverage < 1 or a in unresolved_users or b in unresolved_users)):
             evidence = 'coverage_unknown'
         elif not p['response_rounds']:
             evidence = 'no_observed_response'

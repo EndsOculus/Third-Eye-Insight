@@ -359,11 +359,6 @@ class RecordStore:
                 encode(row),
             ),
         )
-        if mid:
-            self.db.execute(
-                "INSERT OR REPLACE INTO aliases VALUES (?,?,?)",
-                (thread, mid, row["order"]),
-            )
         self.check()
 
     def prepare(self):
@@ -390,15 +385,18 @@ class RecordStore:
             )
 
         self.conflict_users = set()
+        self.conflict_private = set()
         for raw, thread in self.db.execute(
             "SELECT r.record,r.thread FROM records r JOIN conflicts c ON r.thread=c.thread AND r.mid=c.mid"
         ):
             row = decode(raw)
-            self.conflict_users.add(row["sender"])
+            self.conflict_users.add((thread, row["sender"]))
+            if self.mode == "c2c":
+                self.conflict_private.add(row["peer"])
             if row["structure"] == "known":
-                self.conflict_users.update(row["mentions"])
+                self.conflict_users.update((thread, u) for u in row["mentions"])
                 if row.get("reply_to"):
-                    self.conflict_users.update(authors(thread, row["reply_to"]))
+                    self.conflict_users.update((thread, u) for u in authors(thread, row["reply_to"]))
         self.db.execute(
             "DELETE FROM records WHERE EXISTS (SELECT 1 FROM conflicts c WHERE c.thread=records.thread AND c.mid=records.mid)"
         )
@@ -406,6 +404,10 @@ class RecordStore:
         self.db.execute(
             "DELETE FROM records WHERE mid IS NOT NULL AND mid != '' AND seq NOT IN (SELECT min(seq) FROM records GROUP BY thread,mid)"
         )
+        # Aliases describe the surviving first copy, never a removed duplicate/conflict.
+        self.db.execute("DELETE FROM aliases")
+        for thread, mid, raw in self.db.execute("SELECT thread,mid,record FROM records WHERE mid IS NOT NULL AND mid != ''"):
+            self.db.execute("INSERT INTO aliases VALUES (?,?,?)", (thread, mid, decode(raw)["order"]))
         self.count = self.db.execute("SELECT count(*) FROM records").fetchone()[0]
         self.duplicate_rows = clean - self.count
         self.db.execute("CREATE INDEX chronological ON records(stamp,mid,seq)")
