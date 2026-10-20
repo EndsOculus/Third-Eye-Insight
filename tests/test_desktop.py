@@ -23,6 +23,47 @@ def test_validation(tmp_path):
         with pytest.raises(InputError):
             Request(**values).validate()
 
+
+def test_reader_mode_is_visible_and_resets_for_normal_selection():
+    import queue
+    root = tk.Tk()
+    root.withdraw()
+    app = Desktop(root)
+    app.after_cancel(app.poll_id)
+    class Events(queue.Queue):
+        def close(self):
+            pass
+    class Process:
+        def is_alive(self):
+            return False
+        def join(self, **_):
+            pass
+        def close(self):
+            pass
+    try:
+        payload = analyze(Request(demo=True))
+        payload['demo'] = False
+        for isolated in (True, False):
+            payload['source']['reader_isolated'] = isolated
+            payload['source']['source_sha256'] = '0'*64
+            app.events = Events()
+            app.events.put(('result', payload))
+            app.process = Process()
+            app.poll()
+            assert ('隔离只读' if isolated else '标准只读') in app.context.get()
+            app.show_details()
+            def walk(widget):
+                for child in widget.winfo_children():
+                    yield child
+                    yield from walk(child)
+            assert any('0'*64 in w.get('1.0','end') for w in walk(root) if isinstance(w,tk.Text))
+            for window in app.detail_windows:
+                window.destroy()
+            app.detail_windows.clear()
+            app.after_cancel(app.poll_id)
+    finally:
+        root.destroy()
+
 def test_demo_metrics_and_empty():
     result = analyze(Request(demo=True))
     assert result["rows"] == 1200
