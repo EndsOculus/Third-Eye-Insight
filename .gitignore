@@ -107,4 +107,5 @@ __pycache__/
 !contact_names.py
 !tests/test_streaming.py
 !tests/test_contact_names.py
+!tests/test_torch_security.py
 contacts.local.json
