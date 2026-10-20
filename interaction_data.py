@@ -27,7 +27,7 @@ def decode_payload(raw, allow_structure=False):
     result = dict(text='', structure='unknown', reply_to=None, mentions=[], forwarded=False)
     if not isinstance(raw, str):
         return result
-    if len(raw) > MAX_PAYLOAD:
+    if len(raw.encode('utf-8')) > MAX_PAYLOAD:
         result['structure'] = 'oversize'
         return result
     result['text'] = raw
@@ -37,21 +37,32 @@ def decode_payload(raw, allow_structure=False):
         obj = json.loads(raw)
         if not isinstance(obj, dict) or obj.get('schema') != 'tei.message.v1':
             return result
-        text = obj.get('text', '')
-        reply = obj.get('reply_to')
-        mentions = obj.get('mentions', [])
-        forwarded = obj.get('forwarded', False)
-        if (not isinstance(text, str) or not isinstance(mentions, list) or len(mentions) > 300
-                or any(not isinstance(v, str) or not v.isascii() or not v.isdigit() for v in mentions)
-                or (reply is not None and (not isinstance(reply, str) or not reply or len(reply) > 128))
-                or not isinstance(forwarded, bool)):
+        decoded = decode_metadata(obj, dict(result, text=obj.get('text', '')))
+        if decoded['structure'] == 'invalid':
             result['structure'] = 'invalid'
             return result
-        return dict(text=text, structure='known', reply_to=reply,
-                    mentions=sorted(set(mentions)), forwarded=forwarded)
+        return decoded
     except (ValueError, TypeError, RecursionError):
         result['structure'] = 'invalid'
         return result
+
+
+def decode_metadata(obj, result):
+    """Validate an already parsed envelope without reserializing separate fields."""
+    if not isinstance(obj, dict) or obj.get('schema') != 'tei.message.v1':
+        return result
+    text = result['text']
+    reply = obj.get('reply_to')
+    mentions = obj.get('mentions', [])
+    forwarded = obj.get('forwarded', False)
+    if (not isinstance(text, str) or not isinstance(mentions, list) or len(mentions) > 300
+            or any(not isinstance(v, str) or not v.isascii() or not v.isdigit() for v in mentions)
+            or (reply is not None and (not isinstance(reply, str) or not reply or len(reply) > 128))
+            or not isinstance(forwarded, bool)):
+        result['structure'] = 'invalid'
+        return result
+    return dict(text=text, structure='known', reply_to=reply,
+                mentions=sorted(set(mentions)), forwarded=forwarded)
 
 
 def extract_interactions(db_path, identifier, mode='group', start='', end='', max_rows=None, cipher_config=None, source_format='nt', *, force_encrypted=False, scratch_dir=None, cancelled=lambda: False, progress=lambda n,t: None, sink=None):
@@ -116,7 +127,7 @@ def extract_interactions(db_path, identifier, mode='group', start='', end='', ma
                f'{msgid} AS message_id, CASE WHEN length(CAST({tscol} AS BLOB)) <= 32 THEN {tscol} ELSE NULL END AS timestamp, '
                f'{namecol} AS local_nickname, typeof({contentcol}) AS payload_type, {size} AS payload_length, '
                f'CASE WHEN {size} <= {MAX_PAYLOAD} THEN hex({contentcol}) ELSE NULL END AS payload_hex, '
-               f'CASE WHEN {metasize} <= {MAX_PAYLOAD} THEN {metacol} ELSE NULL END AS metadata '
+               f'{metasize} AS metadata_length, CASE WHEN {metasize} <= {MAX_PAYLOAD} THEN {metacol} ELSE NULL END AS metadata '
                f'FROM {table} WHERE {where}')
         total = int(query(f'SELECT count(*) AS n FROM {table} WHERE {where}', tuple(params))[0]['n'])
         if max_rows is not None and total > max_rows:
@@ -155,11 +166,11 @@ def extract_interactions(db_path, identifier, mode='group', start='', end='', ma
             if source_format == 'tei' and isinstance(row['metadata'], str) and raw is not None:
                 try:
                     metadata = json.loads(row['metadata'])
-                    if isinstance(metadata, dict):
-                        metadata['text'] = raw
-                        payload = decode_payload(json.dumps(metadata, ensure_ascii=False), allow_structure=True)
+                    payload = decode_metadata(metadata, payload)
                 except (ValueError, RecursionError):
                     payload['structure'] = 'invalid'
+            if source_format == 'tei' and (row['metadata_length'] or 0) > MAX_PAYLOAD:
+                payload['structure'] = 'oversize'
             if row['payload_length'] is not None and int(row['payload_length']) > MAX_PAYLOAD:
                 payload['structure'] = 'oversize'
             native_rows += payload.get('native_text_status') == 'parsed'

@@ -152,7 +152,22 @@ def _analyze(request, progress, scratch_dir, store=None, local_identity=False):
     labels = {u:f'成员 {i+1:03d}' for i,u in enumerate(users)}
     result['pairs'] = [dict(p, a=labels[p['a']], b=labels[p['b']]) for p in result['pairs']
                        if not request.focus or request.focus in (p['a'],p['b'])]
-    evidence_keys = store.evidence_keys if store is not None else {(r.get('thread',r.get('peer','group')),r.get('message_id')): f"R{r.get('order',i)+1:06d}" for i,r in enumerate(records) if r.get('message_id')}
+    if store is not None:
+        evidence_keys = store.evidence_keys
+    else:
+        # Apply the same conflict removal and first-copy retention as analysis.
+        evidence_keys, signatures, ambiguous = {}, {}, set()
+        for i, r in enumerate(records):
+            if not r.get('message_id'):
+                continue
+            key = (r.get('thread', r.get('peer', 'group')), r['message_id'])
+            signature = (r['sender'], r['timestamp'], r['text'], r.get('reply_to'), tuple(r['mentions']), r.get('forwarded', False), r['structure'])
+            if key in signatures and signatures[key] != signature:
+                ambiguous.add(key)
+            signatures.setdefault(key, signature)
+            evidence_keys.setdefault(key, f"R{r.get('order', i)+1:06d}")
+        for key in ambiguous:
+            evidence_keys.pop(key, None)
     for item in result['pairs']:
         for example in item.get('evidence_examples', []):
             thread=example.pop('thread')
