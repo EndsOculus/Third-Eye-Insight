@@ -1,5 +1,17 @@
 # NT 前缀数据库的隔离只读兼容
 
+Compatibility schema recognition requires at least one usable NT message table:
+`group_msg_table` uses `40027`, while `c2c_msg_table` uses `40030`, together with
+`40033`, `40050`, and `40800`. The message key `40001` is optional. A missing or
+reduced table for an unselected mode does not prevent opening; the selected-mode
+adapter still validates its own required fields before reading.
+
+Source and payload SHA-256 values are computed during prefix-copy preparation.
+Ordinary SQLite/SQLCipher files are opened without a full-file hash scan or its
+copy timeout; their hash fields are `None` and `source_hash_status` is
+`not_computed_standard`. Prefix-copy receipts use `computed_during_prefix_copy`.
+Read-only, source-identity/change, and sidecar checks apply to both paths.
+
 这项功能兼容原始 NT 数据库的 1024 字节前缀及 1 GiB 锁字节页布局，不进行数据库修复。普通 SQLite 和普通 SQLCipher 继续走标准读取路径。不要根据文件名、一次 malformed 或索引计数启用兼容。
 
 ## 启用条件与边界

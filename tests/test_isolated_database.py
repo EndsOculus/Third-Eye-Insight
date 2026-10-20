@@ -64,6 +64,72 @@ def test_mapping_refuses_nondefault_process_state(monkeypatch):
     assert exc.value.code == "compat_unsupported"
 
 
+@pytest.mark.parametrize(('group', 'private'), [
+    ({'40027', '40033', '40050', '40800'}, set()),
+    ({'40027', '40033', '40050', '40800'}, {'40033'}),
+    (set(), {'40030', '40033', '40050', '40800'}),
+    ({'40001'}, {'40030', '40033', '40050', '40800'}),
+])
+def test_schema_accepts_usable_mode_without_optional_key_or_other_table(group, private):
+    from isolated_database import _check_schema
+    class Schema:
+        def query(self, sql):
+            if sql == 'PRAGMA page_size':
+                return [{'page_size': '4096'}]
+            columns = group if 'group_msg_table' in sql else private
+            return [{'name': column} for column in columns]
+    _check_schema(Schema())
+
+
+@pytest.mark.parametrize(('group', 'private', 'page'), [
+    ({'40030', '40033', '40050', '40800'}, set(), 4096),
+    (set(), {'40027', '40033', '40050', '40800'}, 4096),
+    ({'40027', '40033', '40050'}, {'40030', '40033', '40800'}, 4096),
+    ({'40027', '40033', '40050', '40800'}, set(), 8192),
+])
+def test_schema_rejects_incomplete_or_wrong_mode_and_page(group, private, page):
+    from isolated_database import _check_schema
+    class Schema:
+        def query(self, sql):
+            if sql == 'PRAGMA page_size':
+                return [{'page_size': str(page)}]
+            return [{'name': column} for column in (group if 'group_msg_table' in sql else private)]
+    with pytest.raises(access.DatabaseError) as exc:
+        _check_schema(Schema())
+    assert exc.value.code == 'compat_unsupported'
+
+
+def test_standard_open_does_not_hash_unrelated_pages(tmp_path, monkeypatch):
+    path = tmp_path / 'normal.db'
+    with sqlite3.connect(path) as db:
+        db.execute('CREATE TABLE indexed_read (id INTEGER PRIMARY KEY)')
+        db.execute('INSERT INTO indexed_read VALUES (1)')
+    def forbidden_hash(*_):
+        raise AssertionError('standard opens must not do a full-file hash pass')
+    monkeypatch.setattr(access.hashlib, 'sha256', forbidden_hash)
+    with access.open_database(path) as (db, encrypted, receipt):
+        assert db.query('SELECT id FROM indexed_read WHERE id = 1') == [{'id': 1}]
+        assert not encrypted
+        assert receipt['source_sha256'] is None and receipt['payload_sha256'] is None
+        assert receipt['source_hash_status'] == 'not_computed_standard'
+
+
+def test_prefix_copy_still_records_source_and_payload_hashes(tmp_path):
+    payload = tmp_path / 'payload.db'
+    with sqlite3.connect(payload) as db:
+        db.execute('CREATE TABLE readable (id)')
+    path = tmp_path / 'prefixed.db'
+    body = payload.read_bytes()
+    source = b'P' * 1024 + body
+    path.write_bytes(source)
+    with access.open_database(path, scratch_dir=tmp_path) as (_, _, receipt):
+        assert receipt['source_sha256'] == hashlib.sha256(source).hexdigest()
+        assert receipt['payload_sha256'] == hashlib.sha256(body).hexdigest()
+        assert receipt['source_hash_status'] == 'computed_during_prefix_copy'
+    assert path.read_bytes() == source
+    assert not list(tmp_path.glob('tei-payload-*'))
+
+
 @pytest.fixture
 def encrypted(tmp_path):
     dll = Path(os.environ.get("TEI_TEST_SQLCIPHER_DLL", "C:/msys64/mingw64/bin/libsqlcipher-0.dll"))
@@ -82,10 +148,11 @@ def encrypted(tmp_path):
     assert lib.sqlite3_key(handle, key, len(key)) == 0
     sql = ("PRAGMA cipher_page_size=4096; PRAGMA kdf_iter=4000;"
            "PRAGMA cipher_hmac_algorithm=HMAC_SHA1; PRAGMA cipher_kdf_algorithm=PBKDF2_HMAC_SHA512;"
-           "CREATE TABLE group_msg_table([40001] INTEGER PRIMARY KEY,[40027],[40033],[40050],[40800]);"
-           "CREATE TABLE c2c_msg_table([40001] INTEGER PRIMARY KEY,[40027],[40033],[40050],[40800]);"
-           "INSERT INTO group_msg_table VALUES(1,99,1,1700000000,'synthetic');"
-           "INSERT INTO group_msg_table VALUES(2,99,2,1700000001,'synthetic');")
+           "CREATE TABLE group_msg_table([40027],[40033],[40050],[40800]);"
+           "CREATE TABLE c2c_msg_table([40030],[40033],[40050],[40800]);"
+           "INSERT INTO group_msg_table VALUES(99,1,1700000000,'synthetic');"
+           "INSERT INTO group_msg_table VALUES(99,2,1700000001,'synthetic');"
+           "INSERT INTO c2c_msg_table VALUES(9,1,1700000000,'synthetic');")
     assert lib.sqlite3_exec(handle, sql.encode(), None, None, None) == 0
     lib.sqlite3_close(handle)
     cfg = {"password": key.decode(), "sqlcipher_dll": str(dll), "cipher_page_size": 4096, "kdf_iter": 4000}
@@ -112,6 +179,7 @@ def test_real_worker_stream_repeat_cancel_and_parent_mapping(encrypted):
     for _ in range(2):
         c = IsolatedCipherConnection(path, cfg, lambda: False)
         assert c.query('SELECT count(*) AS n FROM group_msg_table') == [{"n": "2"}]
+        assert c.query('SELECT [40030] AS peer FROM c2c_msg_table') == [{'peer': '9'}]
         assert len(list(c.iter_query('SELECT [40800] FROM group_msg_table'))) == 2
         c.close()
         c.close()
@@ -298,6 +366,8 @@ def test_explicit_config_file_is_scoped_per_call(encrypted, tmp_path, monkeypatc
     with access.open_database(path, config_file=config_path) as (connection, _, info):
         assert connection.query('SELECT count(*) AS n FROM group_msg_table') == [{'n':'2'}]
         assert info['readonly']
+        assert info['source_hash_status'] == 'not_computed_standard'
+        assert info['source_sha256'] is None
     assert os.environ['TEI_CONFIG_FILE'] == sentinel
 
 

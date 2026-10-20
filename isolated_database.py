@@ -47,10 +47,16 @@ def _silence():
 
 def _check_schema(connection):
     from database_access import DatabaseError
-    for table in ("c2c_msg_table", "group_msg_table"):
+    # Opening is mode-independent. Require at least one usable NT table; the
+    # selected-mode adapter validates its own table again before reading rows.
+    # In particular, a reduced/unrelated c2c table must not prevent group reads,
+    # and 40001 is an optional message key in interaction_data.
+    supported = False
+    for table, peer in (("group_msg_table", "40027"), ("c2c_msg_table", "40030")):
         columns = {r["name"] for r in connection.query(f"PRAGMA table_info({table})")}
-        if not {"40001", "40027", "40033", "40050", "40800"} <= columns:
-            raise DatabaseError("compat_unsupported")
+        supported |= {peer, "40033", "40050", "40800"} <= columns
+    if not supported:
+        raise DatabaseError("compat_unsupported")
     page = next(iter(connection.query("PRAGMA page_size")[0].values()))
     if int(page) != 4096:
         raise DatabaseError("compat_unsupported")

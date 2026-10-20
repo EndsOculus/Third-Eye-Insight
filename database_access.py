@@ -389,19 +389,6 @@ def _compat_layout(source, offset, plain, cfg):
     return candidate
 
 
-def _source_hash(source, cancelled):
-    started = time.monotonic()
-    digest = hashlib.sha256()
-    with source.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            if cancelled():
-                raise DatabaseError("cancelled")
-            if time.monotonic() - started > COPY_SECONDS:
-                raise DatabaseError("timeout")
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 @contextmanager
 def open_database(
     path,
@@ -469,8 +456,6 @@ def open_database(
                 else CipherConnection(selected, cfg, cancelled)
             )
         conn.query("SELECT count(*) AS n FROM sqlite_master")
-        if source_digest is None:
-            source_digest = payload_digest = _source_hash(source, cancelled)
         if _stamp(source) != stamp:
             raise DatabaseError("changed")
         yield (
@@ -484,6 +469,7 @@ def open_database(
                 "reader_isolated": compatible,
                 "source_sha256": source_digest,
                 "payload_sha256": payload_digest,
+                "source_hash_status": "computed_during_prefix_copy" if offset else "not_computed_standard",
                 "source_prefix_bytes": offset,
                 "compatibility_engine": list(conn.versions) if compatible else None,
             },
