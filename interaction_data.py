@@ -37,7 +37,11 @@ def decode_payload(raw, allow_structure=False):
         obj = json.loads(raw)
         if not isinstance(obj, dict) or obj.get('schema') != 'tei.message.v1':
             return result
-        return decode_metadata(obj, dict(result, text=obj.get('text', '')))
+        decoded = decode_metadata(obj, dict(result, text=obj.get('text', '')))
+        if decoded['structure'] == 'invalid':
+            result['structure'] = 'invalid'
+            return result
+        return decoded
     except (ValueError, TypeError, RecursionError):
         result['structure'] = 'invalid'
         return result

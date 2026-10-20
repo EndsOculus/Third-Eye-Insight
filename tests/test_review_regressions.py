@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from desktop_core import Request, _analyze, analyze
-from interaction_data import extract_interactions
+from interaction_data import decode_payload, extract_interactions
 from interaction_v2 import analyze_records
 from streaming_store import Lookup, RecordStore
 from tests.interaction_fixtures import make_db, msg
@@ -114,3 +114,20 @@ def test_invalid_metadata_preserves_body_and_no_targets(tmp_path, metadata):
     rows, _ = extract_interactions(path, 99, source_format='tei')
     assert rows[0]['text'] == 'synthetic body'
     assert rows[0]['structure'] == 'invalid' and rows[0]['mentions'] == []
+
+
+def test_invalid_envelope_text_preserves_original_string():
+    raw = json.dumps(dict(schema='tei.message.v1', text=42))
+    decoded = decode_payload(raw, allow_structure=True)
+    assert decoded['structure'] == 'invalid' and decoded['text'] == raw
+
+
+def test_metadata_cannot_replace_separate_body(tmp_path):
+    path = tmp_path / 'synthetic.sqlite'
+    make_db(path, [msg(1, 0, 'a', text='synthetic body')])
+    with sqlite3.connect(path) as db:
+        db.execute('UPDATE tei_messages_v1 SET metadata=?',
+                   (json.dumps(dict(schema='tei.message.v1', text=42, mentions=['2'])),))
+    rows, _ = extract_interactions(path, 99, source_format='tei')
+    assert rows[0]['text'] == 'synthetic body'
+    assert rows[0]['structure'] == 'known' and rows[0]['mentions'] == ['2']
