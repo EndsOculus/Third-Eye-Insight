@@ -29,6 +29,8 @@ uv sync --locked
 
 也可从 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases) 下载源码包，解压后在项目目录运行 `uv sync --locked`。源码包不是免安装程序；安装依赖可能联网，模型不随源码提供。
 
+已发布的 **Beta2.6** 源码包对应历史提交，不包含 [更新记录](CHANGELOG.md) 中 **Unreleased** 节点的后续安全修复与 NT 隔离只读兼容修复。需要这些修复时，请使用当前 `main` 源码。此说明不改变 Beta2.6 的标签、日期或已发布资产，也不表示已发布新版本。
+
 随后双击 **Start Insight.vbs**，点击“体验合成演示”即可先了解界面，无需数据库或模型。系统禁用 VBScript 时，使用：
 
 ```powershell
@@ -60,6 +62,7 @@ uv sync --locked
 | 本地 AI 配置与评测 | [向量辅助](AI_ASSISTANCE.md) / [生成实验](GENERATION.md) |
 | 测试与性能 | [验证记录](VALIDATION.md) / [性能口径](BENCHMARK_V2.md) |
 | 隐私与安全 | [安全说明](SECURITY.md) |
+| NT 前缀库隔离只读兼容、精确引擎版本与本地接口复用 | [兼容读取与复用指南](NT_READONLY.md) |
 | 版本变化 | [更新记录](CHANGELOG.md) |
 
 ## 作者与名称
