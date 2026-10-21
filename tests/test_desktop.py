@@ -73,6 +73,48 @@ def test_demo_metrics_and_empty():
     private = analyze(Request(demo=True, mode="c2c"))
     assert len(private["pairs"]) == 11
 
+
+def _details_text(payload):
+    root = tk.Tk()
+    root.withdraw()
+    app = Desktop(root)
+    try:
+        app.result = payload
+        app.filtered = payload['pairs']
+        assert app.filtered
+        app.show_details()
+        def walk(widget):
+            for child in widget.winfo_children():
+                yield child
+                yield from walk(child)
+        return '\n'.join(w.get('1.0', 'end') for w in walk(root) if isinstance(w, tk.Text))
+    finally:
+        root.destroy()
+
+
+def test_standard_database_details_do_not_mislabel_null_hash_as_demo(tmp_path):
+    from tests.interaction_fixtures import msg, make_db
+    path = tmp_path / 'ordinary.sqlite'
+    make_db(path, [msg(1 + i % 2, i * 30, str(i)) for i in range(12)], source_format='nt')
+    payload = analyze(Request(db=str(path), identifier='99'))
+    assert not payload['demo']
+    assert payload['source']['source_sha256'] is None
+    assert payload['source']['source_hash_status'] == 'not_computed_standard'
+    text = _details_text(payload)
+    assert '来源 SHA-256：未计算（标准只读）' in text
+    assert '合成演示' not in text
+
+
+@pytest.mark.parametrize(('demo', 'expected'), [
+    (True, '合成演示（无来源文件）'),
+    (False, '未提供（来源信息缺失）'),
+])
+def test_details_distinguish_demo_from_missing_provenance(demo, expected):
+    payload = analyze(Request(demo=True))
+    payload['demo'] = demo
+    payload['source'] = {}
+    assert '来源 SHA-256：' + expected in _details_text(payload)
+
 def test_real_gui_lifecycle_and_pagination():
     root = tk.Tk()
     root.withdraw()

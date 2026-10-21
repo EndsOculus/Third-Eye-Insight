@@ -517,7 +517,16 @@ class Desktop(ttk.Frame):
                 "样本不足阈值：少于 3 次回应或少于 2 个双向会话；这是描述提示，不是统计置信保证。\n"
                 "无亲密度总分、夜间奖励或自动权重。真实数据测量效度尚未验证。")
         read_mode = 'NT 前缀兼容 / 隔离只读' if source.get('reader_isolated') else '标准只读'
-        text = (f"读取方式：{read_mode}\n来源 SHA-256：{source.get('source_sha256') or '合成演示 / 未提供'}\n\n" + text)
+        if self.result.get('demo'):
+            read_mode = '合成演示'
+            source_hash = '合成演示（无来源文件）'
+        elif source.get('source_sha256'):
+            source_hash = source['source_sha256']
+        elif source.get('source_hash_status') == 'not_computed_standard':
+            source_hash = '未计算（标准只读）'
+        else:
+            source_hash = '未提供（来源信息缺失）'
+        text = (f"读取方式：{read_mode}\n来源 SHA-256：{source_hash}\n\n" + text)
         text += '\n\n规则证据样例（每对最多 20 条；R 为选区输入行编号，非原生 ID；不显示正文）：\n'
         text += '结构不完整时：未知不等于 0；正数仅为已观测计数，不是下限。补全事件可能合并轮次/会话；比例和延迟也仅针对已观测样本。\n'
         for example in row.get('evidence_examples', []):
