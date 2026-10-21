@@ -29,7 +29,11 @@ uv sync --locked
 
 也可从 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases) 下载源码包，解压后在项目目录运行 `uv sync --locked`。源码包不是免安装程序；安装依赖可能联网，模型不随源码提供。
 
-已发布的 **Beta2.6** 源码包对应历史提交，不包含 [更新记录](CHANGELOG.md) 中 **Unreleased** 节点的后续安全修复与 NT 隔离只读兼容修复。需要这些修复时，请使用当前 `main` 源码。此说明不改变 Beta2.6 的标签、日期或已发布资产，也不表示已发布新版本。
+本次 **Beta2.6.1**（项目版本 `2.6.1b1`）为源码预发布候选，仅提供源码 ZIP；不是 EXE 安装包，也不附带 Python 运行环境、依赖、模型或 SQLCipher。是否已发布及可下载资产以 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases) 页面为准。
+
+已发布的 **Beta2.6** 源码包对应历史提交，不包含本次 [更新记录](CHANGELOG.md) 中的安全修复与 NT 隔离只读兼容修复。需要这些修复时，请选择对应的 Beta2.6.1 源码或当前 `main` 源码；旧 Beta2.6 的标签、日期和已发布资产保持不变。
+
+运行要求为 **Windows / Python 3.13**；NT 兼容模式仅验证 SQLite `3.46.1` / SQLCipher `4.6.1 community`，详见 [兼容读取与复用指南](NT_READONLY.md)。隔离安装验证仅针对当前主机，具体结果以发布验收记录和 Release 说明为准，不等同于全新 Windows 安装测试或人工视觉验收；后二者尚未验证。
 
 随后双击 **Start Insight.vbs**，点击“体验合成演示”即可先了解界面，无需数据库或模型。系统禁用 VBScript 时，使用：
 
