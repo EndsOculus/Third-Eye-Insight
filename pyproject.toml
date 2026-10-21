@@ -1,6 +1,6 @@
 [project]
 name = "code3"
-version = "2.6.1b1"
+version = "2.6.2b1"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -16,7 +16,8 @@ dependencies = [
     "sentence-transformers>=5.6.0,<6",
     "torch>=2.10.0,<2.11",
     "anyio>=4.14.2,<4.15",
-    "pillow>=12.3.0,<13",
+    "pillow>=13.0.0,<14",
+    "certifi>=2026.10.19",
     "transformers>=5.10.0,<5.11",
     "setuptools>=83.0.0,<84",
     "idna>=3.15",
