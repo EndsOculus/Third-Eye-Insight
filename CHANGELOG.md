@@ -1,4 +1,30 @@
-## Beta2.6.1 / 2.6.1b1 — 2026-10-21 — 源码预发布 / Source-only prerelease
+## Beta2.6.2 / 2.6.2b1 — 依赖安全更新 / Dependency security updates
+
+[中文](#beta262-zh) | [English](#beta262-en)
+
+<a id="beta262-zh"></a>
+
+### 中文
+
+- **证书信任库**：将 certifi 更新为 `>=2026.10.19`，采用上游对受影响 emSign 信任根的调整，对应 [GHSA-6q48-6c7w-9gw2](https://github.com/advisories/GHSA-6q48-6c7w-9gw2)。
+- **图像处理**：将 Pillow 更新为 `>=13.0.0,<14`，采用 JPEG 缩放解码堆缓冲区溢出和 PDF 页树/尾链递归问题的上游修复，对应 [CVE-2026-112403](https://github.com/advisories/GHSA-8g5g-8vmr-9782) 与 [CVE-2026-112895](https://github.com/advisories/GHSA-p4wg-p73j-c528)。
+- **版本衔接**：保留 PyTorch `>=2.10.0,<2.11`、群聊隔离只读兼容、来源记录及既有交互统计；更新项目版本与对应锁文件。
+- **安装与使用**：在 Windows / Python 3.13 环境运行 `uv sync --locked` 安装锁定依赖，再启动 `Start Insight.vbs`。加密 NT 读取使用本地 SQLCipher 配置；兼容模式的引擎版本与布局要求见 [NT_READONLY.md](NT_READONLY.md)。
+- **测试覆盖**：当前 Windows 主机的 233 项测试全部通过（215 项非 GUI、18 项独立进程桌面用例，零失败或跳过），lint 通过；Pillow PNG/JPEG/PDF、Matplotlib/seaborn 绘图与 SSL 信任库检查通过。全新 Windows 安装、其他平台与人工视觉验收尚未验证。
+
+<a id="beta262-en"></a>
+
+### English
+
+- **Certificate trust store**: Update certifi to `>=2026.10.19` to adopt upstream changes to the affected emSign trust roots, addressing [GHSA-6q48-6c7w-9gw2](https://github.com/advisories/GHSA-6q48-6c7w-9gw2).
+- **Image processing**: Update Pillow to `>=13.0.0,<14` to adopt upstream fixes for the JPEG scaled-decoding heap buffer overflow and PDF page-tree/trailer-chain recursion, covering [CVE-2026-112403](https://github.com/advisories/GHSA-8g5g-8vmr-9782) and [CVE-2026-112895](https://github.com/advisories/GHSA-p4wg-p73j-c528).
+- **Version continuity**: Retain PyTorch `>=2.10.0,<2.11`, isolated read-only group-chat compatibility, provenance and existing interaction statistics; update the project version and matching lock file.
+- **Installation and use**: Run `uv sync --locked` on Windows with Python 3.13 to install locked dependencies, then launch `Start Insight.vbs`. Encrypted NT reading uses local SQLCipher configuration; [NT_READONLY.md](NT_READONLY.md) describes compatibility-mode engine and layout requirements.
+- **Test coverage**: All 233 tests passed on the current Windows host: 215 non-GUI and 18 separate-process desktop cases, with zero failures or skips; lint passed. Pillow PNG/JPEG/PDF, Matplotlib/seaborn plotting and SSL trust-store checks passed. Fresh Windows installation, other platforms and human visual acceptance remain unverified.
+
+---
+
+## Beta2.6.1 / 2.6.1b1 — 2026-10-21 — 群聊读取与安全更新 / Group-chat reading and security updates
 
 [中文](#unreleased-zh) | [English](#unreleased-en)
 
@@ -6,25 +32,25 @@
 
 ### 中文
 
-- **发布范围**：本节对应 Beta2.6.1（项目版本 `2.6.1b1`，2026-10-21）的源码预发布候选；仅准备源码 ZIP，不是 EXE，不附带 Python 运行环境、依赖、模型或 SQLCipher。发布完成状态以对应 Release 为准。既有 Beta2.6 标签、日期和发布资产不变；下方旧记录保留其当时的状态和验证范围。
+- **版本与安装**：Beta2.6.1（项目版本 `2.6.1b1`，2026-10-21）提供项目源码 ZIP 和 `SHA256SUMS.txt`。在 Windows / Python 3.13 环境解压，运行 `uv sync --locked` 安装依赖，再启动 `Start Insight.vbs`。下方保留历史版本记录。
 - **依赖安全**：将 PyTorch 限制为 `>=2.10.0,<2.11`，处理 CVE-2025-2999 / GHSA-vgrw-7cvw-pwgx 的空 `PackedSequence` 原生崩溃。Windows CPU 2.10.0 的子进程回归验证了空输入被拒绝及正常输入仍可用；2.9.1 Windows CPU 构建未通过该回归。本更新不宣称修复独立的 CVE-2025-3000，也不认证其他平台或全部依赖安全，详见 [SECURITY.md](SECURITY.md)。
 - **群聊读取兼容**：仅对明确识别的 1024 字节 NT 前缀、4096 字节页及保留页布局启用隔离只读进程，在子进程内调整 pending-byte 映射；不修改原库、DLL 或主进程的其他 SQLite 连接，也不执行数据库修复。普通 SQLite / SQLCipher 保持标准读取路径，界面区分兼容读取与读取失败。
 - **兼容边界**：仅验证 Windows、SQLite `3.46.1` / SQLCipher `4.6.1 community`；使用的 `sqlite3_test_control` 是不保证跨版本稳定的测试接口，其他引擎版本或不匹配布局明确拒绝。兼容准备最多复制 4 GiB、限时 120 秒；非空 WAL/日志、来源变化、超时及取消均失败关闭。Windows Job、有限 IPC、批次背压及所属子进程清理覆盖退出路径；异常退出后仍可能留下临时文件，不保证安全擦除。
 - **审核修正与来源记录**：群聊和私聊分别识别 `40027` / `40030`，消息键 `40001` 可选，无关精简表不阻碍打开，实际选中模式仍校验其必需字段。前缀复制同时计算原始/载荷 SHA-256；普通库不再强制全文件哈希，收据以空哈希及 `not_computed_standard` 明确标记，保留只读与来源变化检查。提供每次调用独立的 `config_file` 和计数演示入口，不记录聊天正文、不自动导入训练集。 详情界面区分合成演示、标准只读未计算哈希与缺失来源信息，不再将普通库误标为演示。
 - **既有修复保留**：保留 PR #15 的导入限长、按相关会话限定缺失证据提示和重复别名修正，以及 PR #16 的依赖约束与安全回归；本次读取兼容不改变这些统计语义。
-- **验证范围**：最终本地回归为 215 项非 GUI 加 18 项桌面测试全部通过，零失败或跳过；桌面用例含 15 项实际 Tk 测试和 3 项逻辑测试，lint 通过。新增回归覆盖模式字段/可选键、错误布局与引擎拒绝、普通库避免全文件哈希、前缀哈希和临时文件清理；既有用例覆盖取消、并发、重复打开、只读拒写及父进程映射不变。先前 PR 提交的托管 Windows CI 为 198 项通过、7 项因缺少受支持 SQLCipher 运行时跳过，另有 15 项桌面测试通过；该结果不冒充最终提交的托管验证。真实本地只读来源检查保留独立证据，不发布聊天正文或来源指纹；这不是全量消息正文解析、跨平台兼容或视觉验收的证明。 隔离安装验证仅限当前主机，具体结果以发布验收记录和 Release 说明为准；全新 Windows 安装与人工视觉验收尚未验证。
+- **测试覆盖**：本版本本地测试 233 项通过（215 项非 GUI、18 项桌面，含 15 项实际 Tk 与 3 项逻辑用例），lint 通过。发布 PR 的 Windows CI 为 208 项非 GUI 通过、7 项因缺少受支持 SQLCipher 运行时跳过，18 项桌面测试通过。覆盖字段/可选键、布局与引擎校验、哈希策略、临时文件、取消、并发、重复打开、拒写及父进程映射；在当前 Windows 主机验证了隔离安装和隐藏启动，全新 Windows 安装、其他平台与人工视觉验收尚未验证。原生正文解析覆盖与统计含义见相关文档。
 
 <a id="unreleased-en"></a>
 
 ### English
 
-- **Release scope**: This section covers the Beta2.6.1 source-only prerelease candidate (project version `2.6.1b1`, 2026-10-21). Only a source ZIP is prepared, not an EXE; Python, dependencies, models and SQLCipher are not bundled. Publication status is determined by the corresponding Release. Existing Beta2.6 tags, dates and published assets remain unchanged. Older entries below retain their status and validation scope at the time they were written.
+- **Version and installation**: Beta2.6.1 (project version `2.6.1b1`, 2026-10-21) provides a project source ZIP and `SHA256SUMS.txt`. Extract it on Windows with Python 3.13, run `uv sync --locked` to install dependencies, then launch `Start Insight.vbs`. Historical version entries remain below.
 - **Dependency security**: Restrict PyTorch to `>=2.10.0,<2.11` for the empty-`PackedSequence` native crash in CVE-2025-2999 / GHSA-vgrw-7cvw-pwgx. Child-process regressions verify rejection of empty input and continued handling of valid input on Windows CPU 2.10.0; the Windows CPU 2.9.1 build failed this regression. This update does not claim to fix the separate CVE-2025-3000 or certify other platforms or all dependencies. See [SECURITY.md](SECURITY.md).
 - **Group-chat read compatibility**: Enable an isolated read-only process only for an explicitly recognized 1024-byte NT prefix, 4096-byte pages and reserved-page layout; adjust the pending-byte mapping inside that child. Do not modify the source database, DLL or other SQLite connections in the parent, or perform database repair. Ordinary SQLite / SQLCipher files retain standard reading; the UI distinguishes compatibility reads from read failures.
 - **Compatibility limits**: Only Windows with SQLite `3.46.1` / SQLCipher `4.6.1 community` is verified. The `sqlite3_test_control` API is a test interface without cross-version stability guarantees; other engine versions or mismatched layouts are explicitly rejected. Compatibility preparation copies at most 4 GiB within 120 seconds; nonempty WAL/journals, source changes, timeouts and cancellation fail closed. Windows Jobs, bounded IPC, batch backpressure and cleanup of owned children cover exit paths. Abnormal termination may still leave temporary files; secure erasure is not guaranteed.
 - **Review corrections and provenance**: Recognize group/private peer fields `40027` / `40030` respectively, make message key `40001` optional, and allow an unrelated reduced table; the selected-mode adapter still validates its required fields. Prefix copying computes source/payload SHA-256 together. Ordinary files no longer require a full-file hash scan: receipts explicitly use null hashes and `not_computed_standard`, while retaining read-only and source-change checks. Add per-call `config_file` and a count-only demo; do not log chat bodies or automatically import records into training data. Details distinguish synthetic demos, uncomputed standard-file hashes and missing provenance, rather than labeling ordinary files as demos.
 - **Prior fixes retained**: Preserve PR #15's import limits, conversation-scoped missing-evidence warnings and duplicate-alias corrections, plus PR #16's dependency constraints and security regressions. Read compatibility does not change those analysis semantics.
-- **Validation scope**: Final local regression evidence is 215 non-GUI plus 18 desktop tests passed, with zero failures or skips. Desktop coverage comprises 15 actual Tk tests and 3 logic tests; lint passes. New regressions cover mode-specific fields/optional keys, rejected layouts and engines, avoiding full-file hashes for ordinary files, prefix provenance and temporary-file cleanup. Existing cases cover cancellation, concurrency, repeated opens, write rejection and unchanged parent mapping. Hosted Windows CI on the earlier PR commit recorded 198 passes and 7 skips for the unavailable supported SQLCipher runtime, plus 15 desktop passes; this is not presented as hosted verification of the final commit. Real local read-only source checks retain separate evidence without publishing chat bodies or source fingerprints. They do not prove full message-body parsing, cross-platform compatibility or visual acceptance. Any isolated installation validation is confined to the current host; see release acceptance records and release notes for its result. Installation on a fresh Windows system and manual visual acceptance remain unverified.
+- **Test coverage**: All 233 local tests passed for this version: 215 non-GUI and 18 desktop cases, including 15 actual Tk and 3 logic cases; lint passed. The release PR Windows CI recorded 208 non-GUI passes, 7 skips for the unavailable supported SQLCipher runtime, and 18 desktop passes. Coverage includes fields/optional keys, layout and engine validation, hashing policy, temporary files, cancellation, concurrency, repeated opens, write rejection and unchanged parent mapping. Isolated installation and hidden startup were verified on the current Windows host; fresh Windows installation, other platforms and human visual acceptance remain unverified. Related documentation describes native text-parsing coverage and statistical interpretation.
 
 ---
 
@@ -66,12 +92,12 @@
 
 ## Beta2.6 / 2.6.0b1 — 2026-10-19
 
-Source-only prerelease of the modern Windows desktop and interaction v2. Start with `uv sync --locked`, then `Start Insight.vbs`; no executable, dependencies or models are bundled. Optional local vector/generation assistance remains default-off and experimental. Generation holdout: 8 correct / 4 wrong targets among 12 predictions; not validated real-chat or emotion inference. See README.md and GENERATION.md for installation, upgrade boundaries, limits and privacy. This release supersedes the historical v2.5 notes below; only the default v2 desktop/CLI behavior describes this release.
+Prerelease of the modern Windows desktop and interaction v2. Install dependencies with `uv sync --locked`, then launch `Start Insight.vbs`. Optional local vector/generation assistance remains default-off and experimental. Generation holdout: 8 correct / 4 wrong targets among 12 predictions; not validated real-chat or emotion inference. See README.md and GENERATION.md for installation, upgrade boundaries, limits and privacy. This release supersedes the historical v2.5 notes below; only the default v2 desktop/CLI behavior describes this release.
 
 <!-- translation: beta26 -->
 ### 中文译文 — Beta2.6 / 2.6.0b1 — 2026-10-19
 
-现代 Windows 桌面与交互 v2 的纯源码预发行版。先运行 `uv sync --locked`，再启动 `Start Insight.vbs`；不捆绑可执行文件、依赖或模型。可选的本地向量/生成辅助仍默认关闭，且属于实验功能。生成留出评估：12 次预测中目标归属 8 次正确、4 次错误；未验证真实聊天或情感推断能力。安装、升级边界、限制和隐私说明见 README.md 与 GENERATION.md。本版本取代下方历史 v2.5 说明；只有默认 v2 桌面/CLI 行为描述本次发布。
+现代 Windows 桌面与交互 v2 的预发行版。运行 `uv sync --locked` 安装依赖，再启动 `Start Insight.vbs`。可选的本地向量/生成辅助仍默认关闭，且属于实验功能。生成留出评估：12 次预测中目标归属 8 次正确、4 次错误；未验证真实聊天或情感推断能力。安装、升级边界、限制和隐私说明见 README.md 与 GENERATION.md。本版本取代下方历史 v2.5 说明；只有默认 v2 桌面/CLI 行为描述本次发布。
 
 <!-- /translation: beta26 -->
 

@@ -27,13 +27,13 @@ cd Third-Eye-Insight
 uv sync --locked
 ```
 
-也可从 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases) 下载源码包，解压后在项目目录运行 `uv sync --locked`。源码包不是免安装程序；安装依赖可能联网，模型不随源码提供。
+也可从 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases) 下载对应版本的 ZIP，解压后在项目目录运行 `uv sync --locked`，按锁文件安装依赖。
 
-本次 **Beta2.6.1**（项目版本 `2.6.1b1`）为源码预发布候选，仅提供源码 ZIP；不是 EXE 安装包，也不附带 Python 运行环境、依赖、模型或 SQLCipher。是否已发布及可下载资产以 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases) 页面为准。
+当前源码版本为 **Beta2.6.2**（项目版本 `2.6.2b1`），更新 certifi 与 Pillow 的安全依赖，保留 Beta2.6.1 的群聊只读兼容与交互统计。版本说明和下载文件见 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases)，具体变化见 [更新记录](CHANGELOG.md)。
 
-已发布的 **Beta2.6** 源码包对应历史提交，不包含本次 [更新记录](CHANGELOG.md) 中的安全修复与 NT 隔离只读兼容修复。需要这些修复时，请选择对应的 Beta2.6.1 源码或当前 `main` 源码；旧 Beta2.6 的标签、日期和已发布资产保持不变。
+**Beta2.6.1** 已加入 PyTorch 安全更新及 NT 隔离只读兼容；Beta2.6 保留在 Releases 中供历史版本查阅。升级时使用新版目录与对应锁文件。
 
-运行要求为 **Windows / Python 3.13**；NT 兼容模式仅验证 SQLite `3.46.1` / SQLCipher `4.6.1 community`，详见 [兼容读取与复用指南](NT_READONLY.md)。隔离安装验证仅针对当前主机，具体结果以发布验收记录和 Release 说明为准，不等同于全新 Windows 安装测试或人工视觉验收；后二者尚未验证。
+运行环境为 **Windows / Python 3.13**。加密 NT 读取使用本地 SQLCipher 配置；兼容映射支持已验证的 SQLite `3.46.1` / SQLCipher `4.6.1 community` 与指定前缀/页布局，详见 [兼容读取与复用指南](NT_READONLY.md)。可选 AI 辅助使用本地模型，配置见[使用指南](USAGE.md)。
 
 随后双击 **Start Insight.vbs**，点击“体验合成演示”即可先了解界面，无需数据库或模型。系统禁用 VBScript 时，使用：
 
@@ -52,7 +52,7 @@ uv sync --locked
 
 ## 注意事项
 
-- 原生 NT 的引用目标和 @ 收件人解析仍有限制；“未知”表示缺少可用信息，不等于零。加密私有数据库尚未经过真实数据验证。
+- 原生 NT 的引用目标和 @ 收件人解析仍有限制；“未知”表示缺少可用信息，不等于零。已验证的读取路径及字段覆盖见[兼容读取说明](NT_READONLY.md)。
 - AI 辅助可能误判，目前仅用合成数据评测；候选不改变直接统计。互动次数和模型结果都不能用来判断真实感情。
 - 分析在本机进行，原始库只读，不向外部 AI 上传聊天。分享结果时请留意日期等信息，并清除截图中的路径和账号；不要上传数据库、私有配置、日志或凭据。
 - 数据量与模型选区设有上限，超限时请缩小范围，具体限制见[使用指南](USAGE.md)。
