@@ -75,6 +75,10 @@ uv sync --locked
 
 “恋之瞳”的名称灵感来自《东方 Project》中的古明地恋（Komeiji Koishi）与“第三只眼”的意象。
 
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/EndsOculus/badge.svg)](https://hub.xerj.org/contributors/EndsOculus)
+
+本项目的部分公开代码已被 [XERJ Corpus Hub](https://hub.xerj.org/contributors/EndsOculus) 收录，保留原项目链接与 MIT 许可证说明。
+
 ## 致谢
 
 感谢以下开源项目和服务：
