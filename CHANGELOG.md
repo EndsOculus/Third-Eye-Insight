@@ -1,14 +1,16 @@
-## Unreleased — filelock 安全更新 / filelock security update
+## Beta2.6.3 / 2.6.3b1 — filelock 安全更新 / filelock security update
 
 ### 中文
 
 - 将 `filelock` 从锁定版本 `3.25.2` 更新至 `4.2.7`，修复 CVE-2026-112940 / GHSA-v4x8-3wr5-3wq8。
 - 添加 `filelock>=4.2.1,<5` 依赖约束，避免重新解析依赖时回落至受影响版本；其余依赖版本保持不变。
+- 发布包含该补丁的新源码包；Beta2.6.2 及更早源码包不会随主分支更新。升级源码后运行 `uv sync --locked`，并确认 `filelock` 为 `4.2.7`。应用功能及读取逻辑保持不变。
 
 ### English
 
 - Update locked `filelock` from `3.25.2` to `4.2.7` to address CVE-2026-112940 / GHSA-v4x8-3wr5-3wq8.
 - Require `filelock>=4.2.1,<5` to prevent future resolution to an affected version; all other dependency versions remain unchanged.
+- Ship a new source archive containing this fix. Beta2.6.2 and older archives do not change when main is updated. Update the source, run `uv sync --locked`, and confirm `filelock` is `4.2.7`. Application features and database reading logic are unchanged.
 
 ---
 

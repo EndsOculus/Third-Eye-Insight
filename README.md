@@ -29,7 +29,7 @@ uv sync --locked
 
 也可从 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases) 下载对应版本的 ZIP，解压后在项目目录运行 `uv sync --locked`，按锁文件安装依赖。
 
-当前源码版本为 **Beta2.6.2**（项目版本 `2.6.2b1`），更新 certifi 与 Pillow 的安全依赖，保留 Beta2.6.1 的群聊只读兼容与交互统计。版本说明和下载文件见 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases)，具体变化见 [更新记录](CHANGELOG.md)。
+当前源码版本为 **Beta2.6.3**（项目版本 `2.6.3b1`），将 filelock 锁定版本更新至 `4.2.7`，修复 CVE-2026-112940 / GHSA-v4x8-3wr5-3wq8；保留既有功能与其他依赖版本。版本说明和下载文件见 [Releases](https://github.com/EndsOculus/Third-Eye-Insight/releases)，具体变化见 [更新记录](CHANGELOG.md)。
 
 **Beta2.6.1** 已加入 PyTorch 安全更新及 NT 隔离只读兼容；Beta2.6 保留在 Releases 中供历史版本查阅。升级时使用新版目录与对应锁文件。
 
@@ -42,6 +42,15 @@ uv sync --locked
 ```
 
 升级时先保留自己的数据库和私有配置，再将新版源码解压到新目录并重新安装依赖，不覆盖原始数据。命令行、SQLCipher 与可选模型配置见[使用指南](USAGE.md)。
+
+**安全升级**：Beta2.6.2 及更早源码包仍包含旧锁文件，在旧目录重复运行 `uv sync --locked` 不会取得本次修复。请下载 Beta2.6.3 源码包，校验并解压到新目录，在新目录运行：
+
+```powershell
+uv sync --locked
+uv run --no-sync python -c "from importlib.metadata import version; v = version('filelock'); print(v); assert v == '4.2.7'"
+```
+
+输出应为 `4.2.7`。沿用原数据库位置；按需在本地配置原有 SQLCipher 和可选模型路径，不复制旧 `.venv`。版本发布前，可使用包含 [PR #20](https://github.com/EndsOculus/Third-Eye-Insight/pull/20) 的源码提交 `235242a47d90211da2d536661688cb7ea7517d3a` 并执行相同安装命令。
 
 ## 使用方法
 
