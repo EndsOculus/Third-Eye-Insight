@@ -1,3 +1,17 @@
+## Unreleased — filelock 安全更新 / filelock security update
+
+### 中文
+
+- 将 `filelock` 从锁定版本 `3.25.2` 更新至 `4.2.7`，修复 CVE-2026-112940 / GHSA-v4x8-3wr5-3wq8。
+- 添加 `filelock>=4.2.1,<5` 依赖约束，避免重新解析依赖时回落至受影响版本；其余依赖版本保持不变。
+
+### English
+
+- Update locked `filelock` from `3.25.2` to `4.2.7` to address CVE-2026-112940 / GHSA-v4x8-3wr5-3wq8.
+- Require `filelock>=4.2.1,<5` to prevent future resolution to an affected version; all other dependency versions remain unchanged.
+
+---
+
 ## Beta2.6.2 / 2.6.2b1 — 依赖安全更新 / Dependency security updates
 
 [中文](#beta262-zh) | [English](#beta262-en)

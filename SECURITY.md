@@ -26,3 +26,14 @@ separate low-severity CVE-2025-3000 advisory; closing or auto-dismissing its
 alerts is a triage decision, not a vulnerability repair.
 
 Streaming analysis uses a private, parent-owned temporary SQLite working database containing decoded source records and identity-related state. It is removed on normal completion/error/cancel; process/system crashes or persistent file locks may leave it behind. There is no secure-erasure guarantee. The source stays read-only. Only explicit contact schemas, the ignored same-project contacts.local.json map, or the existing verified sender nickname field 40093 are used. The native nickname fallback is local-GUI-only and uses the latest valid selected-period sender name, rejecting conflicting names at the same timestamp; no body-based identity guesses or online lookup. Working disk, sampled process memory, time and participants remain bounded; sampled budgets are not operating-system hard isolation.
+
+## filelock dependency
+
+The dependency constraint `filelock>=4.2.1,<5` and lock file version `4.2.7`
+address [CVE-2026-112940 / GHSA-v4x8-3wr5-3wq8](https://github.com/advisories/GHSA-v4x8-3wr5-3wq8).
+Affected versions `>=3.20.4,<=4.2.0` allow SQLite-backed `ReadWriteLock` and
+`AsyncReadWriteLock` operations to follow attacker-controlled database or side-file
+paths on POSIX systems, potentially overwriting or unlinking files. The project
+does not directly use these reader/writer locks, but filelock is required by its
+model dependencies. Existing installations must run `uv sync --locked` after
+updating the source to receive the patched dependency.
